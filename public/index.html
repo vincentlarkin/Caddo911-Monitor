@@ -459,6 +459,120 @@
       color: white;
     }
     
+    .filter-logo {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    
+    .filter-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    
+    /* Info Button */
+    .info-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      font-family: Georgia, serif;
+      font-size: 16px;
+      font-style: italic;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-left: 15px;
+    }
+    
+    .info-btn:hover {
+      background: var(--red);
+      border-color: var(--red);
+      color: white;
+    }
+    
+    /* Info Panel */
+    .info-panel {
+      position: fixed;
+      top: 80px;
+      right: 20px;
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      z-index: 2000;
+      width: 280px;
+      display: none;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+    
+    .info-panel.active {
+      display: block;
+      animation: slideIn 0.2s ease-out;
+    }
+    
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .info-content h3 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 16px;
+      color: var(--red);
+      margin-bottom: 8px;
+    }
+    
+    .info-content p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 15px;
+      line-height: 1.5;
+    }
+    
+    .info-links {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 15px;
+    }
+    
+    .info-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 12px;
+      transition: all 0.2s ease;
+    }
+    
+    .info-link:hover {
+      background: var(--bg-dark);
+      border-color: var(--red);
+      color: var(--red);
+    }
+    
+    .info-link svg {
+      flex-shrink: 0;
+    }
+    
+    .info-credit {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-align: center;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      margin-bottom: 0 !important;
+    }
+    
     .history-controls {
       padding: 15px;
       background: var(--bg-dark);
@@ -594,6 +708,29 @@
         <span class="status-label">Active</span>
         <span class="status-value" id="active-count">0</span>
       </div>
+      <button class="info-btn" onclick="toggleInfoPanel()" title="About">i</button>
+    </div>
+    
+    <div class="info-panel" id="info-panel">
+      <div class="info-content">
+        <h3>Caddo 911 Live Feed</h3>
+        <p>Real-time emergency incident tracker for Caddo Parish, Louisiana</p>
+        <div class="info-links">
+          <a href="https://github.com/vincentlarkin" target="_blank" class="info-link">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+          </a>
+          <a href="https://vincentlarkin.com" target="_blank" class="info-link">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            Website
+          </a>
+          <a href="https://linkedin.com/in/vincentwlarkin" target="_blank" class="info-link">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+            LinkedIn
+          </a>
+        </div>
+        <p class="info-credit">Created by Vincent Larkin</p>
+      </div>
     </div>
   </header>
   
@@ -630,10 +767,22 @@
       <div id="live-panel">
         <div class="filter-bar">
           <button class="filter-btn active" data-filter="all">All</button>
-          <button class="filter-btn" data-filter="fire">🔥 Fire</button>
-          <button class="filter-btn" data-filter="police">👮 Police</button>
-          <button class="filter-btn" data-filter="sheriff">🛡️ Sheriff</button>
-          <button class="filter-btn" data-filter="ems">🚑 EMS</button>
+          <button class="filter-btn" data-filter="fire">
+            <img src="/images/cfd-fire.jpg" alt="Fire" class="filter-logo">
+            <span>Fire</span>
+          </button>
+          <button class="filter-btn" data-filter="police">
+            <img src="/images/spd-police.gif" alt="Police" class="filter-logo">
+            <span>Police</span>
+          </button>
+          <button class="filter-btn" data-filter="sheriff">
+            <img src="/images/cso-sheriff.gif" alt="Sheriff" class="filter-logo">
+            <span>Sheriff</span>
+          </button>
+          <button class="filter-btn" data-filter="ems">
+            <img src="/images/sfd-fire.gif" alt="EMS" class="filter-logo">
+            <span>EMS</span>
+          </button>
         </div>
         <div class="incident-list" id="incident-list"></div>
         <div class="stats-panel">
@@ -804,6 +953,21 @@
     window.focusIncident = function(lat, lng) {
       map.flyTo([lat, lng], 15, { duration: 0.5 });
     };
+    
+    // Toggle info panel
+    window.toggleInfoPanel = function() {
+      const panel = document.getElementById('info-panel');
+      panel.classList.toggle('active');
+    };
+    
+    // Close info panel when clicking outside
+    document.addEventListener('click', function(e) {
+      const panel = document.getElementById('info-panel');
+      const btn = document.querySelector('.info-btn');
+      if (!panel.contains(e.target) && !btn.contains(e.target)) {
+        panel.classList.remove('active');
+      }
+    });
     
     // Update incidents
     async function updateIncidents() {

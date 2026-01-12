@@ -2,7 +2,9 @@
 
 Real-time 911 incident tracker for Caddo Parish, Louisiana with interactive map visualization.
 
-![Dashboard](https://img.shields.io/badge/Status-Live-red) ![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![Dashboard](https://img.shields.io/badge/Status-Live-red) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![License](https://img.shields.io/badge/License-Proprietary-orange)
+
+**Created by [Vincent Larkin](https://vincentlarkin.com)** | [LinkedIn](https://linkedin.com/in/vincentwlarkin) | [GitHub](https://github.com/vincentlarkin)
 
 ## What It Does
 
@@ -67,3 +69,14 @@ All data comes from the public Caddo Parish 911 Communications District feed at:
 - **Clear cache for fresh geocoding**: Delete `caddo911.db` and restart to re-geocode all incidents
 - **Filter incidents**: Use the filter buttons (Fire, Police, Sheriff, EMS) to focus on specific agency types
 - **Historical view**: Switch to "History" tab and select a date to browse past incidents
+
+## License
+
+This project is **proprietary software** owned by Vincent Larkin.
+
+- ✅ Personal and educational use permitted
+- ❌ Commercial use prohibited
+- ❌ Government use prohibited without authorization
+- ⚠️ Attribution required: "Created by Vincent Larkin"
+
+See [LICENSE](LICENSE) for full terms.
