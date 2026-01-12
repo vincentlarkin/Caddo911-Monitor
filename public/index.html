@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CADDO 911 LIVE</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0a0a0f;
+      --bg-panel: #12121a;
+      --bg-card: #1a1a25;
+      --border: #2a2a3a;
+      --red: #ff3b3b;
+      --red-glow: rgba(255, 59, 59, 0.3);
+      --amber: #ffb830;
+      --amber-glow: rgba(255, 184, 48, 0.3);
+      --blue: #3b8bff;
+      --green: #00ff88;
+      --text: #e8e8f0;
+      --text-dim: #8888aa;
+      --fire: #ff6b35;
+      --medical: #ff3b6b;
+      --police: #3b8bff;
+      --sheriff: #9b59b6;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-dark);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    /* Scanline effect */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.1) 2px,
+        rgba(0, 0, 0, 0.1) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+    
+    .header {
+      background: linear-gradient(180deg, var(--bg-panel) 0%, transparent 100%);
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+    }
+    
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--red), transparent);
+      animation: pulse-line 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse-line {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .logo-icon {
+      width: 50px;
+      height: 50px;
+      background: linear-gradient(135deg, var(--red) 0%, #cc0000 100%);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: bold;
+      color: white;
+      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+      box-shadow: 0 0 30px var(--red-glow);
+      animation: logo-pulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes logo-pulse {
+      0%, 100% { box-shadow: 0 0 20px var(--red-glow); }
+      50% { box-shadow: 0 0 40px var(--red-glow), 0 0 60px var(--red-glow); }
+    }
+    
+    .logo-text h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+      background: linear-gradient(90deg, var(--text), var(--red));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 2px;
+    }
+    
+    .logo-text p {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    
+    .status-bar {
+      display: flex;
+      gap: 25px;
+      align-items: center;
+    }
+    
+    .status-item {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    
+    .status-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .status-value {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .status-value.live {
+      color: var(--red);
+      animation: blink 1s ease-in-out infinite;
+    }
+    
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    
+    .live-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background: var(--red);
+      border-radius: 50%;
+      margin-right: 8px;
+      animation: live-pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes live-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 var(--red-glow); }
+      50% { transform: scale(1.2); box-shadow: 0 0 10px 5px var(--red-glow); }
+    }
+    
+    .main-container {
+      display: grid;
+      grid-template-columns: 1fr 400px;
+      height: calc(100vh - 100px);
+    }
+    
+    .map-container {
+      position: relative;
+      background: var(--bg-panel);
+    }
+    
+    #map {
+      height: 100%;
+      width: 100%;
+      background: #0a0a12;
+    }
+    
+    .map-overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 1000;
+      background: rgba(18, 18, 26, 0.95);
+      padding: 15px 20px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    
+    .map-overlay h3 {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    
+    .sidebar {
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .tab {
+      flex: 1;
+      padding: 15px;
+      text-align: center;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      cursor: pointer;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+    
+    .tab:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.02);
+    }
+    
+    .tab.active {
+      color: var(--red);
+    }
+    
+    .tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 20%;
+      right: 20%;
+      height: 2px;
+      background: var(--red);
+    }
+    
+    .incident-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px;
+    }
+    
+    .incident-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    
+    .incident-list::-webkit-scrollbar-track {
+      background: var(--bg-dark);
+    }
+    
+    .incident-list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+    
+    .incident-card {
+      background: var(--bg-card);
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 10px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .incident-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+    }
+    
+    .incident-card.fire::before { background: var(--fire); }
+    .incident-card.medical::before { background: var(--medical); }
+    .incident-card.police::before { background: var(--police); }
+    .incident-card.sheriff::before { background: var(--sheriff); }
+    .incident-card.other::before { background: var(--amber); }
+    
+    .incident-card:hover {
+      transform: translateX(5px);
+      border-color: var(--red);
+      box-shadow: 0 0 20px rgba(255, 59, 59, 0.1);
+    }
+    
+    .incident-card.new {
+      animation: new-incident 0.5s ease-out;
+    }
+    
+    @keyframes new-incident {
+      0% { 
+        transform: translateX(-100%);
+        opacity: 0;
+      }
+      100% { 
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    .incident-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    
+    .incident-type {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    
+    .incident-time {
+      font-size: 11px;
+      color: var(--amber);
+      background: rgba(255, 184, 48, 0.1);
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+    
+    .incident-location {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+    
+    .incident-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .incident-agency {
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    
+    .agency-fire { background: rgba(255, 107, 53, 0.2); color: var(--fire); }
+    .agency-medical { background: rgba(255, 59, 107, 0.2); color: var(--medical); }
+    .agency-police { background: rgba(59, 139, 255, 0.2); color: var(--police); }
+    .agency-sheriff { background: rgba(155, 89, 182, 0.2); color: var(--sheriff); }
+    .agency-other { background: rgba(255, 184, 48, 0.2); color: var(--amber); }
+    
+    .incident-units {
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+    
+    .stats-panel {
+      padding: 15px;
+      border-top: 1px solid var(--border);
+      background: rgba(0,0,0,0.2);
+    }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    
+    .stat-box {
+      text-align: center;
+      padding: 10px;
+      background: var(--bg-card);
+      border-radius: 8px;
+    }
+    
+    .stat-number {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--amber);
+    }
+    
+    .stat-label {
+      font-size: 9px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .filter-bar {
+      display: flex;
+      gap: 6px;
+      padding: 12px;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    
+    .filter-btn {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .filter-btn:hover {
+      background: var(--bg-panel);
+      color: var(--text);
+      border-color: var(--text-dim);
+    }
+    
+    .filter-btn.active {
+      background: var(--red);
+      border-color: var(--red);
+      color: white;
+    }
+    
+    .history-controls {
+      padding: 15px;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .date-input {
+      width: 100%;
+      padding: 10px 15px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+    
+    .date-input:focus {
+      outline: none;
+      border-color: var(--red);
+    }
+    
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-dim);
+    }
+    
+    .empty-state .icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+      opacity: 0.3;
+    }
+    
+    .hidden {
+      display: none !important;
+    }
+    
+    /* Custom Leaflet styles */
+    .leaflet-container {
+      background: #0a0a12;
+    }
+    
+    .custom-marker {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .marker-pulse {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      position: relative;
+    }
+    
+    .marker-pulse::after {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      animation: marker-pulse 1.5s ease-out infinite;
+    }
+    
+    @keyframes marker-pulse {
+      0% { transform: scale(1); opacity: 1; }
+      100% { transform: scale(2); opacity: 0; }
+    }
+    
+    .leaflet-popup-content-wrapper {
+      background: var(--bg-panel);
+      color: var(--text);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    
+    .leaflet-popup-tip {
+      background: var(--bg-panel);
+    }
+    
+    .popup-content {
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px;
+    }
+    
+    .popup-title {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: var(--red);
+    }
+    
+    .popup-detail {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin: 4px 0;
+    }
+    
+    /* Responsive */
+    @media (max-width: 900px) {
+      .main-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: 50vh 1fr;
+      }
+      
+      .sidebar {
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">911</div>
+      <div class="logo-text">
+        <h1>CADDO PARISH</h1>
+        <p>Emergency Dispatch Live Feed</p>
+      </div>
+    </div>
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-label">Status</span>
+        <span class="status-value live"><span class="live-dot"></span>LIVE</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Last Update</span>
+        <span class="status-value" id="last-update">--:--</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Active</span>
+        <span class="status-value" id="active-count">0</span>
+      </div>
+    </div>
+  </header>
+  
+  <main class="main-container">
+    <div class="map-container">
+      <div id="map"></div>
+      <div class="map-overlay">
+        <h3>Legend</h3>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--fire)"></div>
+          <span>Fire Dept</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--medical)"></div>
+          <span>Medical/EMS</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--police)"></div>
+          <span>Police</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: var(--sheriff)"></div>
+          <span>Sheriff</span>
+        </div>
+      </div>
+    </div>
+    
+    <aside class="sidebar">
+      <div class="tabs">
+        <button class="tab active" data-tab="live">Live</button>
+        <button class="tab" data-tab="history">History</button>
+      </div>
+      
+      <div id="live-panel">
+        <div class="filter-bar">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="fire">🔥 Fire</button>
+          <button class="filter-btn" data-filter="police">👮 Police</button>
+          <button class="filter-btn" data-filter="sheriff">🛡️ Sheriff</button>
+          <button class="filter-btn" data-filter="ems">🚑 EMS</button>
+        </div>
+        <div class="incident-list" id="incident-list"></div>
+        <div class="stats-panel">
+          <div class="stats-grid">
+            <div class="stat-box">
+              <div class="stat-number" id="stat-active">0</div>
+              <div class="stat-label">Active</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-number" id="stat-today">0</div>
+              <div class="stat-label">Today</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-number" id="stat-total">0</div>
+              <div class="stat-label">Total</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="history-panel" class="hidden">
+        <div class="history-controls">
+          <input type="date" id="history-date" class="date-input">
+        </div>
+        <div class="incident-list" id="history-list"></div>
+      </div>
+    </aside>
+  </main>
+  
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Initialize map centered on Shreveport/Caddo Parish
+    const map = L.map('map', {
+      zoomControl: false
+    }).setView([32.5252, -93.7502], 11);
+    
+    // Dark map tiles
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CartoDB',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+    
+    // Add zoom control to bottom right
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    
+    // Store markers
+    const markers = new Map();
+    let currentIncidents = [];
+    let currentFilter = 'all';
+    
+    // Agency color mapping
+    function getAgencyColor(agency) {
+      if (agency.startsWith('CFD') || agency.startsWith('SFD')) return '#ff6b35'; // Fire
+      if (agency === 'EMS' || agency.includes('EMS')) return '#ff3b6b'; // Medical
+      if (agency === 'SPD') return '#3b8bff'; // Police
+      if (agency === 'CSO') return '#9b59b6'; // Sheriff
+      return '#ffb830'; // Other
+    }
+    
+    function getAgencyClass(agency) {
+      if (agency.startsWith('CFD') || agency.startsWith('SFD')) return 'fire';
+      if (agency === 'EMS' || agency.includes('EMS')) return 'medical';
+      if (agency === 'SPD') return 'police';
+      if (agency === 'CSO') return 'sheriff';
+      return 'other';
+    }
+    
+    function getIncidentClass(description) {
+      const desc = description.toLowerCase();
+      if (desc.includes('fire') || desc.includes('smoke')) return 'fire';
+      if (desc.includes('medical') || desc.includes('ems') || desc.includes('injury')) return 'medical';
+      if (desc.includes('traffic') || desc.includes('vehicle') || desc.includes('burglary') || desc.includes('assault')) return 'police';
+      return 'other';
+    }
+    
+    // Filter logic - matches agency codes to filter categories
+    function matchesFilter(incident, filter) {
+      if (filter === 'all') return true;
+      
+      const agency = incident.agency.toUpperCase();
+      const desc = incident.description.toLowerCase();
+      
+      switch (filter) {
+        case 'fire':
+          // CFD = Caddo Fire District, SFD = Shreveport Fire Dept
+          return agency.startsWith('CFD') || agency.startsWith('SFD') || 
+                 agency.includes('FIRE') || desc.includes('fire');
+        case 'police':
+          // SPD = Shreveport Police Dept
+          return agency === 'SPD' || agency.includes('POLICE');
+        case 'sheriff':
+          // CSO = Caddo Sheriff's Office
+          return agency === 'CSO' || agency.includes('SHERIFF');
+        case 'ems':
+          // EMS calls, medical emergencies
+          return agency.includes('EMS') || desc.includes('medical') || 
+                 desc.includes('ems') || desc.includes('ambulance');
+        default:
+          return true;
+      }
+    }
+    
+    function getFilteredIncidents(incidents, filter) {
+      return incidents.filter(inc => matchesFilter(inc, filter));
+    }
+    
+    // Create custom marker
+    function createMarker(incident) {
+      const color = getAgencyColor(incident.agency);
+      const icon = L.divIcon({
+        className: 'custom-marker',
+        html: `<div class="marker-pulse" style="background: ${color}; color: ${color};"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      });
+      
+      const locationParts = [];
+      if (incident.street) locationParts.push(incident.street);
+      if (incident.cross_streets) locationParts.push(incident.cross_streets);
+      const locationStr = locationParts.join(' @ ') || 'Unknown';
+      
+      const marker = L.marker([incident.latitude, incident.longitude], { icon })
+        .bindPopup(`
+          <div class="popup-content">
+            <div class="popup-title">${incident.description}</div>
+            <div class="popup-detail">📍 ${locationStr}</div>
+            <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
+            <div class="popup-detail">🚨 ${incident.agency} • ${incident.units} unit(s)</div>
+          </div>
+        `);
+      
+      return marker;
+    }
+    
+    // Format time
+    function formatTime(time) {
+      if (!time) return '--:--';
+      const str = time.toString().padStart(4, '0');
+      return `${str.slice(0, 2)}:${str.slice(2)}`;
+    }
+    
+    // Create incident card
+    function createIncidentCard(incident, isNew = false) {
+      const agencyClass = getAgencyClass(incident.agency);
+      const incidentClass = getIncidentClass(incident.description);
+      
+      return `
+        <div class="incident-card ${incidentClass} ${isNew ? 'new' : ''}" 
+             data-id="${incident.id}"
+             onclick="focusIncident(${incident.latitude}, ${incident.longitude})">
+          <div class="incident-header">
+            <span class="incident-type">${incident.description}</span>
+            <span class="incident-time">${formatTime(incident.time)}</span>
+          </div>
+          <div class="incident-location">
+            📍 ${[incident.street, incident.cross_streets].filter(Boolean).join(' @ ') || 'Unknown'}
+          </div>
+          <div class="incident-meta">
+            <span class="incident-agency agency-${agencyClass}">${incident.agency}</span>
+            <span class="incident-units">${incident.units} unit(s) • ${incident.municipality}</span>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Focus on incident on map
+    window.focusIncident = function(lat, lng) {
+      map.flyTo([lat, lng], 15, { duration: 0.5 });
+    };
+    
+    // Update incidents
+    async function updateIncidents() {
+      try {
+        const response = await fetch('/api/incidents/active');
+        const allIncidents = await response.json();
+        
+        // Store all incidents
+        currentIncidents = allIncidents;
+        
+        // Apply current filter
+        const incidents = getFilteredIncidents(allIncidents, currentFilter);
+        
+        // Update counts
+        document.getElementById('active-count').textContent = allIncidents.length;
+        
+        // Check for new incidents (from all, not filtered)
+        const newIncidentIds = new Set(allIncidents.map(i => i.id));
+        const filteredIds = new Set(incidents.map(i => i.id));
+        
+        // Update markers - show only filtered incidents
+        markers.forEach((marker, id) => {
+          if (!newIncidentIds.has(id)) {
+            // Incident no longer exists at all
+            map.removeLayer(marker);
+            markers.delete(id);
+          } else if (!filteredIds.has(id)) {
+            // Incident exists but filtered out - hide marker
+            map.removeLayer(marker);
+          } else if (!map.hasLayer(marker)) {
+            // Incident passes filter - show marker
+            marker.addTo(map);
+          }
+        });
+        
+        // Add new markers for all incidents (they'll be shown/hidden by filter)
+        allIncidents.forEach(incident => {
+          if (!markers.has(incident.id)) {
+            const marker = createMarker(incident);
+            markers.set(incident.id, marker);
+            // Only add to map if passes filter
+            if (matchesFilter(incident, currentFilter)) {
+              marker.addTo(map);
+            }
+          }
+        });
+        
+        // Update incident list (filtered)
+        renderIncidentList(incidents);
+        
+      } catch (error) {
+        console.error('Failed to fetch incidents:', error);
+      }
+    }
+    
+    // Render the incident list
+    function renderIncidentList(incidents) {
+      const listEl = document.getElementById('incident-list');
+      if (incidents.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📡</div>
+            <p>No ${currentFilter === 'all' ? 'active' : currentFilter} incidents</p>
+            <p style="font-size: 11px; margin-top: 10px;">${currentFilter === 'all' ? 'Waiting for data...' : 'Try a different filter'}</p>
+          </div>
+        `;
+      } else {
+        listEl.innerHTML = incidents.map(inc => createIncidentCard(inc, false)).join('');
+      }
+    }
+    
+    // Apply filter and update display
+    function applyFilter(filter) {
+      currentFilter = filter;
+      
+      // Update filter button states
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+      });
+      
+      // Filter incidents
+      const filtered = getFilteredIncidents(currentIncidents, filter);
+      
+      // Update markers visibility
+      markers.forEach((marker, id) => {
+        const incident = currentIncidents.find(i => i.id === id);
+        if (incident && matchesFilter(incident, filter)) {
+          if (!map.hasLayer(marker)) marker.addTo(map);
+        } else {
+          if (map.hasLayer(marker)) map.removeLayer(marker);
+        }
+      });
+      
+      // Update list
+      renderIncidentList(filtered);
+    }
+    
+    // Update stats
+    async function updateStats() {
+      try {
+        const response = await fetch('/api/stats');
+        const stats = await response.json();
+        
+        document.getElementById('stat-active').textContent = stats.active;
+        document.getElementById('stat-today').textContent = stats.today;
+        document.getElementById('stat-total').textContent = stats.total;
+        
+      } catch (error) {
+        console.error('Failed to fetch stats:', error);
+      }
+    }
+    
+    // Update last update time
+    async function updateStatus() {
+      try {
+        const response = await fetch('/api/status');
+        const status = await response.json();
+        
+        if (status.lastUpdate) {
+          const date = new Date(status.lastUpdate);
+          document.getElementById('last-update').textContent = 
+            date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+      } catch (error) {
+        console.error('Failed to fetch status:', error);
+      }
+    }
+    
+    // Load history
+    async function loadHistory(date) {
+      try {
+        const url = date ? `/api/incidents/history?date=${date}&limit=200` : '/api/incidents/history?limit=200';
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        const listEl = document.getElementById('history-list');
+        if (data.incidents.length === 0) {
+          listEl.innerHTML = `
+            <div class="empty-state">
+              <div class="icon">📋</div>
+              <p>No incidents found</p>
+            </div>
+          `;
+        } else {
+          listEl.innerHTML = data.incidents.map(inc => createIncidentCard(inc)).join('');
+        }
+      } catch (error) {
+        console.error('Failed to fetch history:', error);
+      }
+    }
+    
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        const tabName = tab.dataset.tab;
+        document.getElementById('live-panel').classList.toggle('hidden', tabName !== 'live');
+        document.getElementById('history-panel').classList.toggle('hidden', tabName !== 'history');
+        
+        if (tabName === 'history') {
+          loadHistory();
+        }
+      });
+    });
+    
+    // Filter button handlers
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyFilter(btn.dataset.filter);
+      });
+    });
+    
+    // History date filter
+    document.getElementById('history-date').addEventListener('change', (e) => {
+      loadHistory(e.target.value);
+    });
+    
+    // Set default history date to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('history-date').value = today;
+    
+    // Initial load
+    updateIncidents();
+    updateStats();
+    updateStatus();
+    
+    // Poll for updates every 15 seconds (backend scrapes every 60s)
+    setInterval(() => {
+      updateIncidents();
+      updateStats();
+      updateStatus();
+    }, 15000);
+  </script>
+</body>
+</html>
