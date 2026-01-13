@@ -11,7 +11,7 @@ import time
 import argparse
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from threading import Thread
 from flask import Flask, jsonify, request, send_from_directory
 import requests
@@ -19,13 +19,30 @@ from bs4 import BeautifulSoup
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 from apscheduler.schedulers.background import BackgroundScheduler
+from zoneinfo import ZoneInfo
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 
 # Database setup
-DB_PATH = 'caddo911.db'
+DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
+
+# Scraper/status metadata
+SCRAPE_INTERVAL_SECONDS_DEFAULT = 60
+feed_refreshed_at: str | None = None  # e.g. "January 13 09:56"
+last_scrape_started_at: str | None = None  # ISO UTC
+last_scrape_finished_at: str | None = None  # ISO UTC
 
 QUIET = False
+
+# Louisiana is in US Central time. Use an IANA name so DST is handled (CST/CDT).
+# On Windows, this requires the `tzdata` pip package (added to requirements.txt).
+# If zoneinfo data isn't available at runtime, fall back to a fixed CST offset so we don't crash.
+CENTRAL_TZ_IS_FALLBACK = False
+try:
+    CENTRAL_TZ = ZoneInfo("America/Chicago")
+except Exception:
+    CENTRAL_TZ = timezone(timedelta(hours=-6))  # CST (no DST)
+    CENTRAL_TZ_IS_FALLBACK = True
 
 def log(message: str) -> None:
     """Lightweight logger (avoids emoji for Windows terminals)."""
@@ -72,8 +89,120 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_active ON incidents(is_active)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
+
+    # Metadata table (shared across collector + web processes)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS meta (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
+
+def meta_set(key: str, value: str | None) -> None:
+    if value is None:
+        return
+    conn = db_connect()
+    conn.execute(
+        "INSERT INTO meta(key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, value),
+    )
+    conn.commit()
+    conn.close()
+
+def meta_get_many(keys: list[str]) -> dict[str, str]:
+    conn = db_connect(row_factory=True)
+    cursor = conn.cursor()
+    placeholders = ",".join(["?"] * len(keys))
+    cursor.execute(f"SELECT key, value FROM meta WHERE key IN ({placeholders})", keys)
+    rows = cursor.fetchall()
+    conn.close()
+    return {row["key"]: row["value"] for row in rows} if rows else {}
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # We store timezone-aware ISO timestamps (UTC) via datetime.now(timezone.utc).isoformat()
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+def _to_central(dt: datetime | None) -> datetime | None:
+    if not dt:
+        return None
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(CENTRAL_TZ)
+    except Exception:
+        return None
+
+def _format_central_hms(dt: datetime | None) -> str | None:
+    c = _to_central(dt)
+    if not c:
+        return None
+    abbr = "CST" if CENTRAL_TZ_IS_FALLBACK else c.strftime("%Z")
+    return f"{c.strftime('%H:%M:%S')} {abbr}"
+
+def _format_central_tooltip(dt: datetime | None) -> str | None:
+    c = _to_central(dt)
+    if not c:
+        return None
+    abbr = "CST" if CENTRAL_TZ_IS_FALLBACK else c.strftime("%Z")
+    return f"{c.strftime('%Y-%m-%d %H:%M:%S')} {abbr}"
+
+# Ensure schema exists even when running under a WSGI server (e.g. gunicorn app:app)
+# Safe to call multiple times.
+try:
+    init_db()
+except Exception as e:
+    # Don't crash import; the process may not have its volume mounted yet.
+    log(f"[WARN] Database init failed: {e}")
+
+# --- Security hardening (optional auth + headers) ---
+AUTH_TOKEN = os.environ.get('CADDO911_AUTH_TOKEN')
+AUTH_USER = os.environ.get('CADDO911_AUTH_USER')
+AUTH_PASS = os.environ.get('CADDO911_AUTH_PASS')
+
+def _unauthorized():
+    resp = jsonify({'error': 'unauthorized'})
+    resp.status_code = 401
+    if AUTH_USER and AUTH_PASS:
+        resp.headers['WWW-Authenticate'] = 'Basic realm="caddo911-live"'
+    return resp
+
+def _check_auth() -> bool:
+    # No auth configured → allow
+    if not AUTH_TOKEN and not (AUTH_USER and AUTH_PASS):
+        return True
+
+    if AUTH_TOKEN:
+        provided = request.headers.get('X-Auth-Token')
+        return bool(provided) and provided == AUTH_TOKEN
+
+    auth = request.authorization
+    return bool(auth) and auth.username == AUTH_USER and auth.password == AUTH_PASS
+
+@app.before_request
+def _auth_middleware():
+    # Allow container health checks without auth
+    if request.path == '/healthz':
+        return None
+    if not _check_auth():
+        return _unauthorized()
+    return None
+
+@app.after_request
+def _security_headers(resp):
+    # Minimal hardening headers (avoid breaking external map tiles/scripts)
+    resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    resp.headers.setdefault('X-Frame-Options', 'DENY')
+    resp.headers.setdefault('Referrer-Policy', 'same-origin')
+    resp.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+    return resp
 
 # Geocoder setup with caching - try ArcGIS first (better US coverage), fallback to Nominatim
 from geopy.geocoders import ArcGIS
@@ -164,7 +293,11 @@ def hash_incident(incident):
     return hashlib.md5(key.encode()).hexdigest()
 
 def scrape_incidents():
-    """Scrape active incidents from Caddo 911 website (ASP.NET site with cookie requirement)"""
+    """
+    Scrape active incidents from Caddo 911 website (ASP.NET site with cookie requirement).
+    Returns a tuple: (incidents, refreshed_at_text)
+      - refreshed_at_text example: "January 13 09:56"
+    """
     base_url = 'https://ias.ecc.caddo911.com/All_ActiveEvents.aspx'
     
     try:
@@ -189,6 +322,13 @@ def scrape_incidents():
         
         soup = BeautifulSoup(response.text, 'html.parser')
         incidents = []
+        refreshed_at_text = None
+
+        # Extract the page's own refresh banner timestamp (matches: "Refreshed at: ...")
+        for s in soup.stripped_strings:
+            if 'Refreshed at:' in s:
+                refreshed_at_text = s.split('Refreshed at:', 1)[1].strip()
+                break
         
         # Find the data table - look for table with incident data
         tables = soup.find_all('table')
@@ -219,16 +359,17 @@ def scrape_incidents():
                             'municipality': municipality
                         })
         
-        return incidents
+        return incidents, refreshed_at_text
     
     except Exception as e:
-        print(f"Scraping error: {e}")
+        log(f"Scraping error: {e}")
         import traceback
         traceback.print_exc()
-        return []
+        return [], None
 
 # Track last update time
-last_update = None
+last_update: str | None = None
+scrape_interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT
 
 def process_incidents(incidents):
     """Store/update incidents in database"""
@@ -287,21 +428,36 @@ def process_incidents(incidents):
     conn.commit()
     conn.close()
     last_update = datetime.now(timezone.utc).isoformat()
+    meta_set('last_update', last_update)
 
 def background_scrape():
     """Background task to scrape incidents periodically"""
+    global feed_refreshed_at, last_scrape_started_at, last_scrape_finished_at
+
+    last_scrape_started_at = datetime.now(timezone.utc).isoformat()
+    meta_set('last_scrape_started_at', last_scrape_started_at)
     log(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping Caddo 911...")
-    incidents = scrape_incidents()
+    incidents, refreshed_at_text = scrape_incidents()
+    if refreshed_at_text:
+        feed_refreshed_at = refreshed_at_text
+        meta_set('feed_refreshed_at', feed_refreshed_at)
     if incidents:
         process_incidents(incidents)
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Processed {len(incidents)} active incidents")
     else:
         log(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents found or scraping failed")
 
+    last_scrape_finished_at = datetime.now(timezone.utc).isoformat()
+    meta_set('last_scrape_finished_at', last_scrape_finished_at)
+
 # API Routes
 @app.route('/')
 def index():
     return send_from_directory('public', 'index.html')
+
+@app.route('/healthz')
+def healthz():
+    return jsonify({'ok': True})
 
 @app.route('/api/incidents/active')
 def get_active_incidents():
@@ -379,22 +535,65 @@ def get_stats():
 
 @app.route('/api/status')
 def get_status():
+    meta = meta_get_many([
+        'last_update',
+        'feed_refreshed_at',
+        'last_scrape_started_at',
+        'last_scrape_finished_at',
+        'scrape_interval_seconds',
+    ])
+
+    interval_seconds = int(meta.get('scrape_interval_seconds') or scrape_interval_seconds)
+    now_central = datetime.now(CENTRAL_TZ)
+
+    last_update_dt = _parse_iso_datetime(meta.get('last_update') or last_update)
+    last_scrape_finished_dt = _parse_iso_datetime(meta.get('last_scrape_finished_at') or last_scrape_finished_at)
+    # Prefer scrape-finished time for "last update" display; otherwise fall back to last_update.
+    display_base = last_scrape_finished_dt or last_update_dt
+
     return jsonify({
-        'lastUpdate': last_update,
-        'scrapeInterval': 60000
+        # lastUpdate: UTC ISO timestamp of when we last processed/saved a scrape
+        'lastUpdate': meta.get('last_update') or last_update,
+        # feedRefreshedAt: the website's own "Refreshed at: ..." text (local to Caddo911)
+        'feedRefreshedAt': meta.get('feed_refreshed_at') or feed_refreshed_at,
+        'lastScrapeStartedAt': meta.get('last_scrape_started_at') or last_scrape_started_at,
+        'lastScrapeFinishedAt': meta.get('last_scrape_finished_at') or last_scrape_finished_at,
+        'serverNow': datetime.now(timezone.utc).isoformat(),
+        # Central-time helpers for the UI (so clients always see Louisiana time, not browser locale)
+        'centralTzAbbr': ("CST" if CENTRAL_TZ_IS_FALLBACK else now_central.strftime("%Z")),
+        'lastUpdateDisplay': _format_central_hms(display_base),
+        'lastUpdateTooltip': _format_central_tooltip(display_base),
+        # milliseconds (frontend expects ms)
+        'scrapeInterval': interval_seconds * 1000,
     })
 
 @app.route('/api/refresh', methods=['POST'])
 def force_refresh():
     try:
-        incidents = scrape_incidents()
+        # Disabled by default for safety; enable explicitly if you really need it.
+        enabled = os.environ.get('CADDO911_ENABLE_REFRESH_ENDPOINT', '0').strip().lower() in ('1', 'true', 'yes')
+        if not enabled:
+            return jsonify({'error': 'refresh endpoint disabled'}), 403
+
+        global feed_refreshed_at, last_scrape_started_at, last_scrape_finished_at
+        last_scrape_started_at = datetime.now(timezone.utc).isoformat()
+        meta_set('last_scrape_started_at', last_scrape_started_at)
+        incidents, refreshed_at_text = scrape_incidents()
+        if refreshed_at_text:
+            feed_refreshed_at = refreshed_at_text
+            meta_set('feed_refreshed_at', feed_refreshed_at)
         process_incidents(incidents)
-        return jsonify({'success': True, 'count': len(incidents)})
+        last_scrape_finished_at = datetime.now(timezone.utc).isoformat()
+        meta_set('last_scrape_finished_at', last_scrape_finished_at)
+        return jsonify({'success': True, 'count': len(incidents), 'feedRefreshedAt': feed_refreshed_at})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def start_collector(*, scrape_interval_seconds: int = 60, initial_scrape: bool = True) -> BackgroundScheduler:
+def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, initial_scrape: bool = True) -> BackgroundScheduler:
     """Start background scraping + DB persistence, return the scheduler."""
+    global scrape_interval_seconds
+    scrape_interval_seconds = int(interval_seconds)
+    meta_set('scrape_interval_seconds', str(scrape_interval_seconds))
     init_db()
     if initial_scrape:
         background_scrape()
@@ -403,7 +602,7 @@ def start_collector(*, scrape_interval_seconds: int = 60, initial_scrape: bool =
     scheduler.add_job(
         background_scrape,
         'interval',
-        seconds=scrape_interval_seconds,
+        seconds=int(scrape_interval_seconds),
         max_instances=1,
         coalesce=True,
     )
@@ -445,7 +644,7 @@ def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_inte
     Start in 'event gather' mode (collector only), and allow starting the web UI on demand.
     Press '2' to start the web UI. Press 'q' to quit.
     """
-    scheduler = start_collector(scrape_interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True)
     web_thread: Thread | None = None
 
     log("[CADDO 911] Event gather mode is running (collector only).")
@@ -477,7 +676,7 @@ def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_inte
 
 def run_gather_mode(*, scrape_interval_seconds: int = 60) -> None:
     """Collector-only mode. No web server, just keeps filling the DB."""
-    scheduler = start_collector(scrape_interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True)
     log("[CADDO 911] Collector-only mode running. Press Ctrl+C to stop.")
     try:
         while True:
@@ -513,7 +712,7 @@ def main() -> None:
         return
 
     # serve mode: collector + web UI immediately
-    scheduler = start_collector(scrape_interval_seconds=args.interval, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=args.interval, initial_scrape=True)
     try:
         run_webserver(host=args.host, port=args.port)
     except KeyboardInterrupt:

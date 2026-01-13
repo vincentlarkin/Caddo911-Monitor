@@ -1,0 +1,23 @@
+.git
+.github
+.cursor
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# local DB / data
+caddo911.db
+caddo911.db-*
+data/
+
+# OS/editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+

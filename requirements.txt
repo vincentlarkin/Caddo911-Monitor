@@ -3,3 +3,5 @@ requests==2.31.0
 beautifulsoup4==4.12.2
 geopy==2.4.1
 apscheduler==3.10.4
+gunicorn==21.2.0; platform_system != "Windows"
+tzdata==2025.2

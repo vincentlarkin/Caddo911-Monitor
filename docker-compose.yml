@@ -1,0 +1,44 @@
+services:
+  collector:
+    build: .
+    command: ["python", "app.py", "--mode", "gather", "--interval", "60", "--quiet"]
+    environment:
+      - CADDO911_DB_PATH=/data/caddo911.db
+    volumes:
+      - caddo911-data:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build: .
+    # Production WSGI server (serves UI + API, reads from the shared SQLite DB)
+    command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:3911", "app:app"]
+    environment:
+      - CADDO911_DB_PATH=/data/caddo911.db
+      # Protect the UI/API (required for safe self-hosting)
+      - CADDO911_AUTH_USER=change-me
+      - CADDO911_AUTH_PASS=change-me-too
+    volumes:
+      - caddo911-data:/data
+    ports:
+      - "3911:3911"
+    depends_on:
+      - collector
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caddo911-data:
+

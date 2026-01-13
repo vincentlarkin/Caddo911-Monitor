@@ -71,6 +71,10 @@ python app.py --mode gather --interval 60
 python app.py --mode gather --quiet
 ```
 
+### Self-hosting (NAS / Docker)
+
+See the GitHub wiki page: [Self-hosting](https://github.com/vincentlarkin/Caddo911-Monitor/wiki/Self-hosting)
+
 ## How It Works
 
 1. **Scraping**: Uses `requests` + `BeautifulSoup` to parse the ASP.NET HTML table from Caddo 911's public feed (handles cookie/session requirements)

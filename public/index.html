@@ -951,19 +951,19 @@
       <div class="filter-bar">
         <button class="filter-btn active" data-filter="all">All</button>
         <button class="filter-btn" data-filter="cadfd">
-          <img src="/images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
+          <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
           <span>CAD-FD/EMS</span>
         </button>
         <button class="filter-btn" data-filter="shvfd">
-          <img src="/images/sfd-fire.png" alt="SHVFD" class="filter-logo">
+          <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
           <span>SHVFD</span>
         </button>
         <button class="filter-btn" data-filter="police">
-          <img src="/images/spd-police.png" alt="Police" class="filter-logo">
+          <img src="images/spd-police.png" alt="Police" class="filter-logo">
           <span>Police</span>
         </button>
         <button class="filter-btn" data-filter="sheriff">
-          <img src="/images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
+          <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
           <span>Sheriff</span>
         </button>
       </div>
@@ -1244,7 +1244,7 @@
     // Update incidents
     async function updateIncidents() {
       try {
-        const response = await fetch('/api/incidents/active');
+        const response = await fetch('api/incidents/active');
         const allIncidents = await response.json();
         
         // Store all incidents
@@ -1319,7 +1319,7 @@
     // Update stats
     async function updateStats() {
       try {
-        const response = await fetch('/api/stats');
+        const response = await fetch('api/stats');
         const stats = await response.json();
         
         document.getElementById('stat-active').textContent = stats.active;
@@ -1334,13 +1334,29 @@
     // Update last update time
     async function updateStatus() {
       try {
-        const response = await fetch('/api/status');
+        const response = await fetch('api/status');
         const status = await response.json();
-        
-        if (status.lastUpdate) {
-          const date = new Date(status.lastUpdate);
-          document.getElementById('last-update').textContent = 
-            date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        const el = document.getElementById('last-update');
+
+        // Prefer the upstream Caddo911 "Refreshed at:" timestamp if available.
+        if (status.feedRefreshedAt) {
+          const tz = status.centralTzAbbr || 'CT';
+          el.textContent = `${status.feedRefreshedAt} ${tz}`;
+        } else if (status.lastUpdateDisplay) {
+          el.textContent = status.lastUpdateDisplay;
+        } else if (status.lastScrapeFinishedAt || status.lastUpdate) {
+          // Fallback: if the backend didn't provide Central-time strings, show local time.
+          const date = new Date(status.lastScrapeFinishedAt || status.lastUpdate);
+          el.textContent = date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
+        // Helpful hover text
+        if (status.lastUpdateTooltip) {
+          el.title = `Server scrape (Central): ${status.lastUpdateTooltip}`;
+        } else {
+          const scraped = status.lastScrapeFinishedAt || status.lastUpdate;
+          el.title = scraped ? `Server scrape: ${new Date(scraped).toLocaleString()}` : '';
         }
       } catch (error) {
         console.error('Failed to fetch status:', error);
@@ -1350,7 +1366,7 @@
     // Load history
     async function loadHistory(date) {
       try {
-        const url = date ? `/api/incidents/history?date=${date}&limit=200` : '/api/incidents/history?limit=200';
+        const url = date ? `api/incidents/history?date=${date}&limit=200` : 'api/incidents/history?limit=200';
         const response = await fetch(url);
         const data = await response.json();
 
