@@ -40,25 +40,6 @@
       overflow-x: hidden;
     }
     
-    /* Scanline effect */
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(0, 0, 0, 0.1) 2px,
-        rgba(0, 0, 0, 0.1) 4px
-      );
-      pointer-events: none;
-      z-index: 9999;
-    }
-    
     .header {
       background: linear-gradient(180deg, var(--bg-panel) 0%, transparent 100%);
       padding: 20px 30px;
@@ -327,11 +308,14 @@
       width: 4px;
     }
     
-    .incident-card.fire::before { background: var(--fire); }
-    .incident-card.medical::before { background: var(--medical); }
-    .incident-card.police::before { background: var(--police); }
-    .incident-card.sheriff::before { background: var(--sheriff); }
-    .incident-card.other::before { background: var(--amber); }
+    /* Severity-based accent (meaningful colors):
+       - High: red
+       - Medium: amber/yellow
+       - Low: blue
+    */
+    .incident-card.sev-high::before { background: var(--red); }
+    .incident-card.sev-medium::before { background: var(--amber); }
+    .incident-card.sev-low::before { background: var(--blue); }
     
     .incident-card:hover {
       transform: translateX(5px);
@@ -394,11 +378,10 @@
       font-weight: 600;
     }
     
-    .agency-fire { background: rgba(255, 107, 53, 0.2); color: var(--fire); }
-    .agency-medical { background: rgba(255, 59, 107, 0.2); color: var(--medical); }
-    .agency-police { background: rgba(59, 139, 255, 0.2); color: var(--police); }
-    .agency-sheriff { background: rgba(155, 89, 182, 0.2); color: var(--sheriff); }
-    .agency-other { background: rgba(255, 184, 48, 0.2); color: var(--amber); }
+    /* Agency badge now uses severity colors (so sidebar + map match). */
+    .incident-agency.sev-high { background: rgba(255, 59, 59, 0.18); color: var(--red); }
+    .incident-agency.sev-medium { background: rgba(255, 184, 48, 0.18); color: var(--amber); }
+    .incident-agency.sev-low { background: rgba(59, 139, 255, 0.18); color: var(--blue); }
     
     .incident-units {
       font-size: 10px;
@@ -854,6 +837,34 @@
       color: var(--text-dim);
       margin: 4px 0;
     }
+
+    .popup-link {
+      display: inline-block;
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--blue);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(59, 139, 255, 0.35);
+      padding-bottom: 1px;
+    }
+
+    .popup-link:hover {
+      color: var(--text);
+      border-bottom-color: rgba(255, 59, 59, 0.6);
+    }
+
+    /* Improve street-name readability WITHOUT switching to a light basemap:
+       we render labels as a separate tile layer and boost only that layer. */
+    .leaflet-labels-pane .leaflet-tile {
+      filter: contrast(1.35) brightness(1.35) saturate(1.05);
+      opacity: 0.95;
+    }
+
+    /* Optional: nudge the dark basemap colors so water reads more "blue" while staying dark.
+       This applies ONLY to the base layer (labels are a separate overlay). */
+    .leaflet-base-pane .leaflet-tile {
+      filter: hue-rotate(18deg) saturate(1.35) brightness(1.02);
+    }
     
     /* Responsive */
     @media (max-width: 900px) {
@@ -923,20 +934,19 @@
       <div class="map-overlay">
         <h3>Legend</h3>
         <div class="legend-item">
-          <div class="legend-dot" style="background: var(--fire)"></div>
-          <span>Fire Dept</span>
+          <div class="legend-dot" style="background: var(--red)"></div>
+          <span>High severity</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: var(--medical)"></div>
-          <span>Medical/EMS</span>
+          <div class="legend-dot" style="background: var(--amber)"></div>
+          <span>Medium severity</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: var(--police)"></div>
-          <span>Police</span>
+          <div class="legend-dot" style="background: var(--blue)"></div>
+          <span>Low severity</span>
         </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: var(--sheriff)"></div>
-          <span>Sheriff</span>
+        <div style="margin-top: 10px; font-size: 10px; color: var(--text-dim); line-height: 1.4;">
+          Colors = severity. Use the sidebar filters to limit by agency.
         </div>
       </div>
     </div>
@@ -1014,11 +1024,30 @@
       zoomControl: false
     }).setView([32.5252, -93.7502], 11);
     
-    // Dark map tiles
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CartoDB',
+    // Dark basemap (keeps the UI in dark mode) with a separate label overlay for readability.
+    // Base (no labels) in its own pane so we can color-grade it without affecting labels.
+    map.createPane('base');
+    map.getPane('base').classList.add('leaflet-base-pane');
+    map.getPane('base').style.zIndex = 200;
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+      pane: 'base',
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
       subdomains: 'abcd',
       maxZoom: 19
+    }).addTo(map);
+
+    // Labels overlay (higher contrast / brighter via CSS)
+    map.createPane('labels');
+    map.getPane('labels').classList.add('leaflet-labels-pane');
+    map.getPane('labels').style.zIndex = 650;
+    map.getPane('labels').style.pointerEvents = 'none';
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+      pane: 'labels',
+      subdomains: 'abcd',
+      maxZoom: 19,
+      opacity: 1
     }).addTo(map);
     
     // Add zoom control to bottom right
@@ -1048,12 +1077,94 @@
       return 'other';
     }
     
-    function getIncidentClass(description) {
-      const desc = description.toLowerCase();
-      if (desc.includes('fire') || desc.includes('smoke')) return 'fire';
-      if (desc.includes('medical') || desc.includes('ems') || desc.includes('injury')) return 'medical';
-      if (desc.includes('traffic') || desc.includes('vehicle') || desc.includes('burglary') || desc.includes('assault')) return 'police';
-      return 'other';
+    // Severity classification (meaningful colors)
+    // - high: life safety / violence / fire / serious traffic
+    // - medium: theft / hazards / accidents
+    // - low: follow-up / reports / citizen assist
+    function _normalizeDesc(description) {
+      return String(description || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function _includesAny(text, terms) {
+      for (const t of terms) {
+        if (text.includes(t)) return true;
+      }
+      return false;
+    }
+
+    function getSeverity(incident) {
+      const d = _normalizeDesc(incident?.description);
+      const agency = String(incident?.agency || '').toUpperCase();
+
+      // Explicit low-priority / administrative / follow-up type calls
+      const LOW = [
+        'follow up', 'followup', 'follow', 'investigation', 'report', 'information',
+        'citizen assist', 'citizen assistance', 'assist citizen', 'civil',
+        'welfare check', 'wellness check', 'property check', 'extra patrol', 'directed patrol',
+        'noise', 'complaint', 'parking', 'traffic control',
+        'lost property', 'found property',
+      ];
+
+      // High-severity life safety / violence / weapons / fire / critical medical
+      const HIGH = [
+        // Violence / weapons
+        'shots fired', 'shooting', 'shot fired', 'gun', 'armed', 'weapon',
+        'stabbing', 'stab', 'knife',
+        'assault', 'battery', 'domestic', 'fight',
+        'robbery', 'home invasion', 'kidnap', 'hostage',
+        'homicide', 'murder', 'rape', 'sexual',
+        // Fire
+        'structure fire', 'house fire', 'apartment fire', 'building fire',
+        'fire', 'smoke', 'explosion',
+        // Medical
+        'medical', 'ems', 'unconscious', 'not breathing', 'difficulty breathing', 'choking',
+        'overdose', 'cardiac', 'heart', 'stroke', 'seizure',
+        // Traffic (serious)
+        'hit and run', 'hit run', 'injury accident', 'accident with injuries', 'fatal', 'entrap', 'rollover',
+      ];
+
+      // Medium-severity incidents (default bucket if not high/low)
+      const MEDIUM = [
+        // Theft / property crime
+        'stolen', 'theft', 'burglary', 'break in', 'breaking entering', 'shoplift', 'vandal',
+        // Traffic / hazard
+        'accident', 'crash', 'wreck', 'collision', 'mvc', 'mva',
+        'road hazard', 'debris', 'disabled vehicle',
+        // Animals
+        'loose livestock', 'livestock', 'loose animal', 'animal in roadway', 'cow', 'horse',
+        // General police calls
+        'disturbance', 'suspicious', 'trespass', 'harassment', 'fraud', 'alarm',
+      ];
+
+      // Special-cases: "minor accident" should not be treated like a high-priority crime call.
+      if (d.includes('minor accident') || d.includes('minor crash') || d.includes('fender bender')) {
+        return 'low';
+      }
+
+      if (_includesAny(d, HIGH)) return 'high';
+      if (_includesAny(d, LOW)) return 'low';
+      if (_includesAny(d, MEDIUM)) return 'medium';
+
+      // If we can't classify: default to medium (safer than understating severity).
+      // EMS agency tends to be life-safety oriented.
+      if (agency === 'EMS' || agency.includes('EMS')) {
+        return 'high';
+      }
+      return 'medium';
+    }
+
+    function getSeverityClass(sev) {
+      return sev === 'high' ? 'sev-high' : sev === 'low' ? 'sev-low' : 'sev-medium';
+    }
+
+    function getSeverityColor(sev) {
+      if (sev === 'high') return '#ff3b3b';
+      if (sev === 'low') return '#3b8bff';
+      return '#ffb830';
     }
     
     // Filter logic - matches agency codes to filter categories
@@ -1186,9 +1297,15 @@
       return size;
     }
 
+    function googleMapsUrl(lat, lng) {
+      const q = `${Number(lat).toFixed(6)},${Number(lng).toFixed(6)}`;
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+    }
+
     // Create custom marker (triangle area instead of pinpoint dot)
     function createMarker(incident, { mode = 'live' } = {}) {
-      const color = getAgencyColor(incident.agency);
+      const sev = getSeverity(incident);
+      const color = getSeverityColor(sev);
       
       const locationParts = [];
       if (incident.street) locationParts.push(incident.street);
@@ -1198,6 +1315,7 @@
       const seed = _incidentSeed(incident);
       const sizeMeters = _geocodeTriangleSizeMeters(incident, mode);
       const points = _triangleLatLngs(incident.latitude, incident.longitude, sizeMeters, seed);
+      const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
       
       const marker = L.polygon(points, {
         color,
@@ -1206,12 +1324,18 @@
         fillColor: color,
         fillOpacity: mode === 'history' ? 0.18 : 0.28,
       })
+        // Right-click → open in Google Maps (useful on desktop)
+        .on('contextmenu', () => {
+          window.open(gmaps, '_blank', 'noopener,noreferrer');
+        })
         .bindPopup(`
           <div class="popup-content">
             <div class="popup-title">${incident.description}</div>
             <div class="popup-detail">📍 ${locationStr}</div>
             <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
             <div class="popup-detail">🚨 ${incident.agency} • ${incident.units} unit(s)</div>
+            <div class="popup-detail">⚠️ Severity: ${sev.toUpperCase()}</div>
+            <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
           </div>
         `);
       
@@ -1262,11 +1386,11 @@
     
     // Create incident card
     function createIncidentCard(incident, isNew = false) {
-      const agencyClass = getAgencyClass(incident.agency);
-      const incidentClass = getIncidentClass(incident.description);
+      const sev = getSeverity(incident);
+      const sevClass = getSeverityClass(sev);
       
       return `
-        <div class="incident-card ${incidentClass} ${isNew ? 'new' : ''}" 
+        <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}" 
              data-id="${incident.id}"
              onclick="focusIncident(${incident.latitude}, ${incident.longitude})">
           <div class="incident-header">
@@ -1277,8 +1401,8 @@
             📍 ${[incident.street, incident.cross_streets].filter(Boolean).join(' @ ') || 'Unknown'}
           </div>
           <div class="incident-meta">
-            <span class="incident-agency agency-${agencyClass}">${incident.agency}</span>
-            <span class="incident-units">${incident.units} unit(s) • ${incident.municipality}</span>
+            <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${incident.agency}</span>
+            <span class="incident-units">${sev.toUpperCase()} • ${incident.units} unit(s) • ${incident.municipality}</span>
           </div>
         </div>
       `;

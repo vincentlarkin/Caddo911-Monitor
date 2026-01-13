@@ -19,6 +19,28 @@ Triangle size is based on the incident’s stored geocoding metadata:
 
 This makes uncertain placements visually less precise while keeping high-confidence placements tight.
 
+## Colors represent severity (not agency)
+
+The UI uses a **severity-first** color scheme so colors have consistent meaning across the sidebar and the map:
+
+- **Red**: high severity (life safety / violence / weapons / major incidents)
+- **Yellow**: medium severity (theft / hazards / non-injury accidents, etc.)
+- **Blue**: low severity (follow-up / reports / citizen assistance, etc.)
+
+### Where severity colors appear
+
+- **Sidebar cards**: the left accent bar and the agency badge use severity colors
+- **Map triangles**: triangle fill/stroke uses the same severity color as the sidebar
+
+### Severity classification (keyword-based)
+
+Severity is derived from the incident `description` using keyword matching.
+Examples of intent:
+
+- **High (red)**: medical emergencies, fires/smoke, assaults/battery, shots fired/weapons, hit-and-run, serious injury accidents
+- **Medium (yellow)**: stolen vehicle/theft/burglary, loose livestock/road hazards, typical crashes/accidents
+- **Low (blue)**: follow-up investigations, reports, citizen assists, property checks
+
 ## Geocoding is intersection-first and self-healing (no DB wipe required)
 
 Incidents are geocoded using an intersection-first strategy:
