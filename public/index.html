@@ -1125,24 +1125,87 @@
       });
     }
     
-    // Create custom marker
+    function _stringHash(str) {
+      // Stable 32-bit hash for deterministic marker shapes per incident
+      let h = 2166136261;
+      const s = String(str || '');
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return h >>> 0;
+    }
+
+    function _incidentSeed(incident) {
+      return _stringHash(incident?.hash || incident?.id || '');
+    }
+
+    function _triangleLatLngs(lat, lng, sizeMeters, seed) {
+      // Small equilateral-ish triangle around a center point, rotated deterministically.
+      const base = [
+        [0, 1],
+        [-0.866, -0.5],
+        [0.866, -0.5],
+      ];
+      const angle = ((seed % 360) * Math.PI) / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+
+      const latRad = (lat * Math.PI) / 180;
+      const mPerDegLat = 111320;
+      const mPerDegLng = 111320 * Math.cos(latRad);
+
+      return base.map(([x, y]) => {
+        const rx = x * cos - y * sin;
+        const ry = x * sin + y * cos;
+        const dLat = (ry * sizeMeters) / mPerDegLat;
+        const dLng = (rx * sizeMeters) / (mPerDegLng || 1);
+        return [lat + dLat, lng + dLng];
+      });
+    }
+
+    function _geocodeTriangleSizeMeters(incident, mode) {
+      const src = String(incident?.geocode_source || '').toLowerCase();
+      const q = String(incident?.geocode_quality || '').toLowerCase();
+
+      // Defaults: slightly generalized even for "good" geocodes (avoids false precision).
+      let size = mode === 'history' ? 70 : 85;
+
+      if (src === 'fallback' || q === 'fallback' || q === 'city-only') {
+        size = mode === 'history' ? 220 : 260;
+      } else if (q === 'cross-only') {
+        size = mode === 'history' ? 160 : 190;
+      } else if (q === 'street-only') {
+        size = mode === 'history' ? 140 : 170;
+      } else if (q === 'street+cross') {
+        size = mode === 'history' ? 90 : 110;
+      } else if (q === 'intersection-2') {
+        size = mode === 'history' ? 65 : 80;
+      }
+
+      return size;
+    }
+
+    // Create custom marker (triangle area instead of pinpoint dot)
     function createMarker(incident, { mode = 'live' } = {}) {
       const color = getAgencyColor(incident.agency);
-      const dotClass = mode === 'history' ? 'marker-static' : 'marker-pulse';
-      const size = mode === 'history' ? 14 : 20;
-      const icon = L.divIcon({
-        className: 'custom-marker',
-        html: `<div class="${dotClass}" style="background: ${color}; color: ${color};"></div>`,
-        iconSize: [size, size],
-        iconAnchor: [size / 2, size / 2]
-      });
       
       const locationParts = [];
       if (incident.street) locationParts.push(incident.street);
       if (incident.cross_streets) locationParts.push(incident.cross_streets);
       const locationStr = locationParts.join(' @ ') || 'Unknown';
+
+      const seed = _incidentSeed(incident);
+      const sizeMeters = _geocodeTriangleSizeMeters(incident, mode);
+      const points = _triangleLatLngs(incident.latitude, incident.longitude, sizeMeters, seed);
       
-      const marker = L.marker([incident.latitude, incident.longitude], { icon })
+      const marker = L.polygon(points, {
+        color,
+        weight: mode === 'history' ? 1 : 1.2,
+        opacity: 0.9,
+        fillColor: color,
+        fillOpacity: mode === 'history' ? 0.18 : 0.28,
+      })
         .bindPopup(`
           <div class="popup-content">
             <div class="popup-title">${incident.description}</div>

@@ -11,6 +11,8 @@ import time
 import argparse
 import os
 import sys
+import math
+import re
 from datetime import datetime, timezone, timedelta
 from threading import Thread
 from flask import Flask, jsonify, request, send_from_directory
@@ -89,6 +91,19 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_active ON incidents(is_active)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
+
+    # Add geocoding metadata columns (safe to run on an existing DB; does NOT delete data)
+    # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS in older versions, so we try/except.
+    for col_name, col_type in (
+        ("geocode_source", "TEXT"),     # 'arcgis' | 'osm' | 'fallback'
+        ("geocode_quality", "TEXT"),    # 'intersection-2' | 'street+cross' | 'street-only' | 'cross-only' | 'fallback'
+        ("geocode_query", "TEXT"),      # the query string we sent to the provider
+        ("geocoded_at", "DATETIME"),    # UTC ISO timestamp
+    ):
+        try:
+            cursor.execute(f"ALTER TABLE incidents ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass
 
     # Metadata table (shared across collector + web processes)
     cursor.execute('''
@@ -210,80 +225,178 @@ geolocator_arcgis = ArcGIS(timeout=5)
 geolocator_osm = Nominatim(user_agent="caddo911_tracker", timeout=5)
 geocode_cache = {}
 
+def _dedupe_keep_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for it in items:
+        if not it:
+            continue
+        key = it.strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+def _clean_ws(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip()
+
+def _split_cross_tokens(text: str | None) -> list[str]:
+    """
+    Split a "cross streets" field into individual street tokens.
+    Handles separators like '&', '/', ' and ', and '@'.
+    """
+    if not text:
+        return []
+    s = _clean_ws(text)
+    if not s:
+        return []
+
+    # Normalize separators to '&'
+    s = s.replace("/", " & ").replace("@", " & ")
+    s = re.sub(r"\s+\band\b\s+", " & ", s, flags=re.IGNORECASE)
+    s = _clean_ws(s)
+
+    parts = [p.strip(" ,") for p in s.split("&")]
+    out: list[str] = []
+    for p in parts:
+        p = _clean_ws(p)
+        if not p:
+            continue
+        up = p.upper()
+        if "DEAD END" in up or up in ("DEADEND",):
+            continue
+        out.append(p)
+    return _dedupe_keep_order(out)
+
+def _extract_street_and_crosses(street: str | None, cross_streets: str | None) -> tuple[str | None, list[str]]:
+    """
+    The feed sometimes puts multiple streets in the "street" field, e.g.:
+      "E 70TH @ DIXIE GARDEN DR & E DIXIE MEADOW RD"
+    In that case, treat the part before '@' as the main street, and fold the rest into crosses.
+    """
+    street_s = _clean_ws(street or "")
+    cross_s = _clean_ws(cross_streets or "")
+
+    extra_cross = ""
+    if street_s and "@" in street_s:
+        main, extra = street_s.split("@", 1)
+        street_s = _clean_ws(main)
+        extra_cross = _clean_ws(extra)
+
+    crosses = _split_cross_tokens(extra_cross) + _split_cross_tokens(cross_s)
+    street_clean = street_s if street_s else None
+    return street_clean, crosses
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in meters."""
+    r = 6371000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
 def geocode_address(street, cross_streets, municipality):
     """
     Convert address to lat/lng coordinates.
-    Uses street + first cross street as intersection.
+    Uses up to TWO cross streets (when available) and handles '@' formatting in the street field.
     Tries ArcGIS first (better US coverage), then Nominatim.
     """
     import random
     
-    city = 'Shreveport'
+    city = _clean_ws(municipality or "") or 'Shreveport'
     state = 'LA'
-    
-    # Parse cross streets - get FIRST real one
-    first_cross = None
-    if cross_streets and cross_streets.strip():
-        parts = [p.strip() for p in cross_streets.split('&')]
-        for part in parts:
-            if part and part.upper() not in ['DEAD END', '']:
-                first_cross = part
-                break
-    
-    street_clean = street.strip() if street else None
-    
-    # Cache key
-    cache_key = f"{street_clean}|{first_cross}"
+
+    street_clean, crosses = _extract_street_and_crosses(street, cross_streets)
+    cross1 = crosses[0] if len(crosses) > 0 else None
+    cross2 = crosses[1] if len(crosses) > 1 else None
+
+    # Cache key (include both crosses + city so we don't collide on common names like "Dee St")
+    cache_key = f"{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{city}"
     if cache_key in geocode_cache:
         return geocode_cache[cache_key]
-    
-    # Build queries optimized for intersection lookup
-    queries = []
-    if street_clean and first_cross:
-        # ArcGIS format: "Street1 & Street2, City, State"
-        queries.append(f"{street_clean} & {first_cross}, {city}, {state}")
-        queries.append(f"{street_clean} St & {first_cross}, {city}, {state}")
-        queries.append(f"{street_clean} and {first_cross}, {city}, {state}")
-    elif first_cross:
-        queries.append(f"{first_cross}, {city}, {state}")
-    elif street_clean:
-        queries.append(f"{street_clean}, {city}, {state}")
-        queries.append(f"{street_clean} St, {city}, {state}")
-    
-    if not queries:
-        queries.append(f"{city}, {state}")
+
+    # Build queries optimized for intersection lookup.
+    # Priority:
+    # - cross1 & cross2 (best when there is no main street, or when street field contains multiple streets)
+    # - street & cross1 / street & cross2
+    # - street only / cross only
+    candidates: list[tuple[str, str]] = []
+    if cross1 and cross2:
+        candidates.append((f"{cross1} & {cross2}, {city}, {state}", "intersection-2"))
+        candidates.append((f"{cross1} and {cross2}, {city}, {state}", "intersection-2"))
+    if street_clean and cross1:
+        candidates.append((f"{street_clean} & {cross1}, {city}, {state}", "street+cross"))
+        candidates.append((f"{street_clean} and {cross1}, {city}, {state}", "street+cross"))
+    if street_clean and cross2:
+        candidates.append((f"{street_clean} & {cross2}, {city}, {state}", "street+cross"))
+    if street_clean:
+        candidates.append((f"{street_clean}, {city}, {state}", "street-only"))
+    if cross1:
+        candidates.append((f"{cross1}, {city}, {state}", "cross-only"))
+    candidates.append((f"{city}, {state}", "city-only"))
+
+    # De-dupe queries while preserving quality tag for each query string
+    deduped: list[tuple[str, str]] = []
+    seen_q: set[str] = set()
+    for q, quality in candidates:
+        qn = _clean_ws(q)
+        if not qn or qn.lower() in seen_q:
+            continue
+        seen_q.add(qn.lower())
+        deduped.append((qn, quality))
     
     # Try ArcGIS first (better for US addresses)
-    for attempt_query in queries[:2]:
+    for attempt_query, quality in deduped[:4]:
         try:
             time.sleep(0.1)
             location = geolocator_arcgis.geocode(attempt_query, timeout=4)
             if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
-                result = {'lat': location.latitude, 'lng': location.longitude}
+                result = {
+                    'lat': location.latitude,
+                    'lng': location.longitude,
+                    'source': 'arcgis',
+                    'quality': quality,
+                    'query': attempt_query,
+                }
                 geocode_cache[cache_key] = result
-                log(f"  [ARC] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
+                log(f"  [ARC] {quality} | {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
                 return result
         except Exception:
             pass
     
     # Fallback to Nominatim/OSM
-    for attempt_query in queries[:2]:
+    for attempt_query, quality in deduped[:4]:
         try:
             time.sleep(0.1)
             location = geolocator_osm.geocode(attempt_query, country_codes='us', exactly_one=True, timeout=3)
             if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
-                result = {'lat': location.latitude, 'lng': location.longitude}
+                result = {
+                    'lat': location.latitude,
+                    'lng': location.longitude,
+                    'source': 'osm',
+                    'quality': quality,
+                    'query': attempt_query,
+                }
                 geocode_cache[cache_key] = result
-                log(f"  [OSM] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
+                log(f"  [OSM] {quality} | {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
                 return result
         except Exception:
             pass
     
-    log(f"  [--] {street_clean or '?'} @ {first_cross or '?'}")
+    log(f"  [--] fallback | {street_clean or '?'} @ {cross1 or '?'} {'& ' + cross2 if cross2 else ''}")
     
     # Fallback to Shreveport area
     offset = lambda: (random.random() - 0.5) * 0.04
-    default = {'lat': 32.47 + offset(), 'lng': -93.79 + offset()}
+    default = {
+        'lat': 32.47 + offset(),
+        'lng': -93.79 + offset(),
+        'source': 'fallback',
+        'quality': 'fallback',
+        'query': None,
+    }
     geocode_cache[cache_key] = default
     return default
 
@@ -388,33 +501,120 @@ def process_incidents(incidents):
         current_hashes.add(h)
         
         # Check if exists
-        cursor.execute('SELECT id, latitude, longitude FROM incidents WHERE hash = ?', (h,))
-        existing = cursor.fetchone()
+        try:
+            cursor.execute(
+                'SELECT id, latitude, longitude, geocode_source, geocode_quality FROM incidents WHERE hash = ?',
+                (h,)
+            )
+            existing = cursor.fetchone()
+            existing_cols = "new"
+        except sqlite3.OperationalError:
+            cursor.execute('SELECT id, latitude, longitude FROM incidents WHERE hash = ?', (h,))
+            existing = cursor.fetchone()
+            existing_cols = "old"
         
         if existing:
             # Update last_seen
             cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1 WHERE hash = ?', (now, h))
+
+            # Opportunistic re-geocode: if we previously fell back (or have no coords),
+            # try again using the improved intersection logic. This keeps your DB, but improves
+            # "bad" points over time.
+            try:
+                existing_lat = existing[1]
+                existing_lng = existing[2]
+                existing_source = existing[3] if existing_cols == "new" and len(existing) > 3 else None
+                existing_quality = existing[4] if existing_cols == "new" and len(existing) > 4 else None
+
+                needs_geo = (existing_lat is None or existing_lng is None)
+                low_quality = (existing_source in (None, "fallback")) or (existing_quality in (None, "fallback", "city-only", "cross-only"))
+                if (needs_geo or low_quality) and (incident.get('street') or incident.get('cross_streets')):
+                    geo = geocode_address(incident.get('street'), incident.get('cross_streets'), incident.get('municipality'))
+                    if geo and geo.get('lat') is not None and geo.get('lng') is not None:
+                        should_update = False
+                        if needs_geo:
+                            should_update = True
+                        else:
+                            try:
+                                dist_m = _haversine_m(float(existing_lat), float(existing_lng), float(geo['lat']), float(geo['lng']))
+                                # Only overwrite if materially different (avoid churning minor provider jitter)
+                                if dist_m > 75:
+                                    should_update = True
+                            except Exception:
+                                # If distance calc fails, be conservative and avoid overwriting
+                                should_update = False
+
+                        if should_update:
+                            try:
+                                cursor.execute(
+                                    'UPDATE incidents SET latitude = ?, longitude = ?, geocode_source = ?, geocode_quality = ?, geocode_query = ?, geocoded_at = ? WHERE hash = ?',
+                                    (
+                                        geo['lat'],
+                                        geo['lng'],
+                                        geo.get('source'),
+                                        geo.get('quality'),
+                                        geo.get('query'),
+                                        now,
+                                        h,
+                                    )
+                                )
+                                log(f"Re-geocoded: {incident['description']} -> {geo.get('source')} {geo.get('quality')}")
+                            except sqlite3.OperationalError:
+                                # Older schema without geocode columns: still update lat/lng if missing
+                                cursor.execute(
+                                    'UPDATE incidents SET latitude = ?, longitude = ? WHERE hash = ?',
+                                    (geo['lat'], geo['lng'], h)
+                                )
+            except Exception:
+                pass
         else:
             # New incident - geocode and insert
-            coords = geocode_address(incident['street'], incident['cross_streets'], incident['municipality'])
-            cursor.execute('''
-                INSERT OR IGNORE INTO incidents 
-                (hash, agency, time, units, description, street, cross_streets, municipality, latitude, longitude, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                h,
-                incident['agency'],
-                incident['time'],
-                incident['units'],
-                incident['description'],
-                incident['street'],
-                incident['cross_streets'],
-                incident['municipality'],
-                coords['lat'],
-                coords['lng'],
-                now,
-                now
-            ))
+            geo = geocode_address(incident['street'], incident['cross_streets'], incident['municipality'])
+            try:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO incidents 
+                    (hash, agency, time, units, description, street, cross_streets, municipality,
+                     latitude, longitude, first_seen, last_seen,
+                     geocode_source, geocode_quality, geocode_query, geocoded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    h,
+                    incident['agency'],
+                    incident['time'],
+                    incident['units'],
+                    incident['description'],
+                    incident['street'],
+                    incident['cross_streets'],
+                    incident['municipality'],
+                    geo['lat'],
+                    geo['lng'],
+                    now,
+                    now,
+                    geo.get('source'),
+                    geo.get('quality'),
+                    geo.get('query'),
+                    now,
+                ))
+            except sqlite3.OperationalError:
+                # Older schema: insert without geocode metadata columns
+                cursor.execute('''
+                    INSERT OR IGNORE INTO incidents 
+                    (hash, agency, time, units, description, street, cross_streets, municipality, latitude, longitude, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    h,
+                    incident['agency'],
+                    incident['time'],
+                    incident['units'],
+                    incident['description'],
+                    incident['street'],
+                    incident['cross_streets'],
+                    incident['municipality'],
+                    geo['lat'],
+                    geo['lng'],
+                    now,
+                    now
+                ))
             log(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
     
     # Mark incidents no longer in feed as inactive

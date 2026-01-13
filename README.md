@@ -75,6 +75,13 @@ python app.py --mode gather --quiet
 
 See the GitHub wiki page: [Self-hosting](https://github.com/vincentlarkin/Caddo911-Monitor/wiki/Self-hosting)
 
+## Wiki (in-repo)
+
+This repo also includes wiki pages in `wiki/` (handy as source docs you can copy into GitHub Wiki):
+
+- [Behavior](wiki/Behavior.md)
+- [Scraping](wiki/Scraping.md)
+
 ## How It Works
 
 1. **Scraping**: Uses `requests` + `BeautifulSoup` to parse the ASP.NET HTML table from Caddo 911's public feed (handles cookie/session requirements)
@@ -108,7 +115,7 @@ All data comes from the public Caddo Parish 911 Communications District feed at:
 
 ## Tips
 
-- **Clear cache for fresh geocoding**: Delete `caddo911.db` and restart to re-geocode all incidents
+- **Geocoding improves over time**: The app stores geocode metadata and can re-geocode low-quality points automatically as new scrapes arrive (no DB wipe required).
 - **Filter incidents**: Use the filter buttons (CAD-FD/EMS, SHVFD, Police, Sheriff) to focus on specific agency types
 - **Historical view**: Switch to "History" tab and select a date to browse past incidents
 
