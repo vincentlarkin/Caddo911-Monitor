@@ -236,6 +236,16 @@
       flex-direction: column;
       overflow: hidden;
     }
+
+    /* Ensure the sidebar panels become real flex columns so lists can scroll */
+    #live-panel,
+    #history-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0; /* critical for nested overflow */
+      overflow: hidden;
+    }
     
     .tabs {
       display: flex;
@@ -280,6 +290,7 @@
       flex: 1;
       overflow-y: auto;
       padding: 10px;
+      min-height: 0; /* critical for nested overflow */
     }
     
     .incident-list::-webkit-scrollbar {
@@ -398,6 +409,7 @@
       padding: 15px;
       border-top: 1px solid var(--border);
       background: rgba(0,0,0,0.2);
+      flex-shrink: 0;
     }
     
     .stats-grid {
@@ -433,15 +445,19 @@
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
       flex-wrap: wrap;
+      flex-shrink: 0;
     }
     
     .filter-btn {
-      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
       font-size: 11px;
       font-family: 'JetBrains Mono', monospace;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 12px;
       color: var(--text-dim);
       cursor: pointer;
       transition: all 0.2s ease;
@@ -451,25 +467,29 @@
       background: var(--bg-panel);
       color: var(--text);
       border-color: var(--text-dim);
+      transform: translateY(-1px);
     }
     
     .filter-btn.active {
-      background: var(--red);
-      border-color: var(--red);
-      color: white;
+      background: rgba(255, 59, 59, 0.16);
+      border-color: rgba(255, 59, 59, 0.55);
+      color: var(--text);
+      box-shadow: 0 0 24px rgba(255, 59, 59, 0.12);
     }
     
     .filter-logo {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      object-fit: cover;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      object-fit: contain;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      padding: 3px;
     }
-    
-    .filter-btn {
-      display: flex;
-      align-items: center;
-      gap: 6px;
+
+    .filter-btn.active .filter-logo {
+      border-color: rgba(255, 59, 59, 0.55);
+      box-shadow: 0 0 0 1px rgba(255, 59, 59, 0.12) inset;
     }
     
     /* Info Button */
@@ -577,22 +597,167 @@
       padding: 15px;
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
     }
     
     .date-input {
       width: 100%;
-      padding: 10px 15px;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.70));
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 12px;
       color: var(--text);
       font-family: 'JetBrains Mono', monospace;
       font-size: 13px;
+      cursor: pointer;
+    }
+
+    .date-input:hover {
+      border-color: var(--text-dim);
+      background: var(--bg-panel);
+    }
+
+    .date-input-left {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      text-align: left;
+    }
+
+    .date-input-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .date-input-value {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .date-input-icon {
+      width: 18px;
+      height: 18px;
+      color: var(--amber);
+      opacity: 0.9;
+      flex-shrink: 0;
     }
     
     .date-input:focus {
       outline: none;
       border-color: var(--red);
+    }
+
+    /* Inline date picker */
+    .date-picker {
+      display: none;
+      margin-top: 12px;
+      background: rgba(18, 18, 26, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 14px;
+      padding: 12px;
+      backdrop-filter: blur(10px);
+    }
+
+    .date-picker.open {
+      display: block;
+      animation: slideIn 0.15s ease-out;
+    }
+
+    .dp-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .dp-month {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .dp-nav {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: var(--bg-card);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: grid;
+      place-items: center;
+    }
+
+    .dp-nav:hover {
+      border-color: rgba(255, 59, 59, 0.55);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.12);
+    }
+
+    .dp-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+
+    .dp-dow {
+      font-size: 9px;
+      color: var(--text-dim);
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      padding: 4px 0 6px;
+    }
+
+    .dp-day {
+      height: 34px;
+      border-radius: 10px;
+      background: rgba(26, 26, 37, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+    }
+
+    .dp-day:hover {
+      border-color: var(--text-dim);
+      background: rgba(26, 26, 37, 0.9);
+      transform: translateY(-1px);
+    }
+
+    .dp-day.empty {
+      opacity: 0;
+      pointer-events: none;
+      border: none;
+      background: transparent;
+    }
+
+    .dp-day.today:not(.selected) {
+      border-color: rgba(255, 184, 48, 0.55);
+      box-shadow: 0 0 0 1px rgba(255, 184, 48, 0.12) inset;
+    }
+
+    .dp-day.selected {
+      background: rgba(255, 59, 59, 0.22);
+      border-color: rgba(255, 59, 59, 0.65);
+      box-shadow: 0 0 22px rgba(255, 59, 59, 0.14);
+      color: var(--text);
+      font-weight: 700;
     }
     
     .empty-state {
@@ -805,7 +970,17 @@
       
       <div id="history-panel" class="hidden">
         <div class="history-controls">
-          <input type="date" id="history-date" class="date-input">
+          <button type="button" id="history-date-btn" class="date-input" aria-expanded="false" aria-controls="date-picker">
+            <div class="date-input-left">
+              <div class="date-input-label">History date</div>
+              <div class="date-input-value" id="history-date-value">----</div>
+            </div>
+            <svg class="date-input-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 11h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2zM7 15h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/>
+              <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z"/>
+            </svg>
+          </button>
+          <div class="date-picker" id="date-picker" aria-hidden="true"></div>
         </div>
         <div class="incident-list" id="history-list"></div>
       </div>
@@ -1105,10 +1280,13 @@
         
         const listEl = document.getElementById('history-list');
         if (data.incidents.length === 0) {
+          const label = date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'selected date';
           listEl.innerHTML = `
             <div class="empty-state">
               <div class="icon">📋</div>
-              <p>No incidents found</p>
+              <p>No incidents available for</p>
+              <p style="font-size: 12px; margin-top: 6px; color: var(--text); font-weight: 600;">${label}</p>
+              <p style="font-size: 11px; margin-top: 10px;">Try another date (or the cache may not include that day yet).</p>
             </div>
           `;
         } else {
@@ -1118,6 +1296,128 @@
         console.error('Failed to fetch history:', error);
       }
     }
+
+    // Inline History date picker (no browser-native date input)
+    const historyDateBtn = document.getElementById('history-date-btn');
+    const historyDateValue = document.getElementById('history-date-value');
+    const datePickerEl = document.getElementById('date-picker');
+
+    const isoToday = new Date().toISOString().split('T')[0];
+    let historySelectedDate = isoToday;
+    let historyViewMonth = (() => {
+      const d = parseISODate(isoToday);
+      d.setDate(1);
+      return d;
+    })();
+
+    function pad2(n) {
+      return String(n).padStart(2, '0');
+    }
+
+    function isoFromParts(year, monthIndex, day) {
+      return `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
+    }
+
+    function parseISODate(iso) {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1);
+    }
+
+    function setHistoryDate(iso, { load = true } = {}) {
+      historySelectedDate = iso;
+      historyDateValue.textContent = iso;
+      const d = parseISODate(iso);
+      d.setDate(1);
+      historyViewMonth = d;
+      if (load) loadHistory(iso);
+      renderDatePicker();
+    }
+
+    function toggleDatePicker(forceOpen) {
+      const next = typeof forceOpen === 'boolean' ? forceOpen : !datePickerEl.classList.contains('open');
+      datePickerEl.classList.toggle('open', next);
+      datePickerEl.setAttribute('aria-hidden', String(!next));
+      historyDateBtn.setAttribute('aria-expanded', String(next));
+      if (next) renderDatePicker();
+    }
+
+    function renderDatePicker() {
+      if (!datePickerEl.classList.contains('open')) return;
+
+      const year = historyViewMonth.getFullYear();
+      const month = historyViewMonth.getMonth();
+      const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+      const monthLabel = historyViewMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+      const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      let html = `
+        <div class="dp-header">
+          <button type="button" class="dp-nav" data-action="prev" aria-label="Previous month">‹</button>
+          <div class="dp-month">${monthLabel}</div>
+          <button type="button" class="dp-nav" data-action="next" aria-label="Next month">›</button>
+        </div>
+        <div class="dp-grid">
+          ${dows.map(d => `<div class="dp-dow">${d}</div>`).join('')}
+      `;
+
+      // Leading empties
+      for (let i = 0; i < firstDow; i++) {
+        html += `<button type="button" class="dp-day empty" tabindex="-1" disabled></button>`;
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const iso = isoFromParts(year, month, day);
+        const isSelected = iso === historySelectedDate;
+        const isToday = iso === isoToday;
+        const cls = [
+          'dp-day',
+          isSelected ? 'selected' : '',
+          isToday ? 'today' : ''
+        ].filter(Boolean).join(' ');
+        html += `<button type="button" class="${cls}" data-date="${iso}">${day}</button>`;
+      }
+
+      // Trailing empties to fill last row (up to 42 day cells + 7 dows)
+      const totalCells = firstDow + daysInMonth;
+      const trailing = (7 - (totalCells % 7)) % 7;
+      for (let i = 0; i < trailing; i++) {
+        html += `<button type="button" class="dp-day empty" tabindex="-1" disabled></button>`;
+      }
+
+      html += `</div>`;
+      datePickerEl.innerHTML = html;
+    }
+
+    historyDateBtn.addEventListener('click', () => toggleDatePicker());
+
+    datePickerEl.addEventListener('click', (e) => {
+      const action = e.target.closest('button[data-action]')?.dataset.action;
+      if (action === 'prev') {
+        historyViewMonth = new Date(historyViewMonth.getFullYear(), historyViewMonth.getMonth() - 1, 1);
+        renderDatePicker();
+        return;
+      }
+      if (action === 'next') {
+        historyViewMonth = new Date(historyViewMonth.getFullYear(), historyViewMonth.getMonth() + 1, 1);
+        renderDatePicker();
+        return;
+      }
+
+      const date = e.target.closest('button[data-date]')?.dataset.date;
+      if (date) {
+        setHistoryDate(date, { load: true });
+        toggleDatePicker(false);
+      }
+    });
+
+    // Close date picker when clicking outside of it
+    document.addEventListener('click', (e) => {
+      if (!datePickerEl.classList.contains('open')) return;
+      if (datePickerEl.contains(e.target) || historyDateBtn.contains(e.target)) return;
+      toggleDatePicker(false);
+    });
     
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -1130,7 +1430,11 @@
         document.getElementById('history-panel').classList.toggle('hidden', tabName !== 'history');
         
         if (tabName === 'history') {
-          loadHistory();
+          // Make sure the date UI is initialized and load that date's cache
+          setHistoryDate(historySelectedDate, { load: true });
+          toggleDatePicker(false);
+        } else {
+          toggleDatePicker(false);
         }
       });
     });
@@ -1142,14 +1446,8 @@
       });
     });
     
-    // History date filter
-    document.getElementById('history-date').addEventListener('change', (e) => {
-      loadHistory(e.target.value);
-    });
-    
-    // Set default history date to today
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('history-date').value = today;
+    // Initialize History date UI (default to today)
+    setHistoryDate(isoToday, { load: false });
     
     // Initial load
     updateIncidents();
