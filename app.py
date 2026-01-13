@@ -298,20 +298,25 @@ def get_history():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     
+    # History should not include incidents that are currently active on Caddo911.
+    # Only return cleared/inactive incidents.
     if date:
         cursor.execute(
-            'SELECT * FROM incidents WHERE DATE(first_seen) = ? ORDER BY first_seen DESC LIMIT ? OFFSET ?',
+            'SELECT * FROM incidents WHERE is_active = 0 AND DATE(first_seen) = ? ORDER BY first_seen DESC LIMIT ? OFFSET ?',
             (date, limit, offset)
         )
     else:
         cursor.execute(
-            'SELECT * FROM incidents ORDER BY first_seen DESC LIMIT ? OFFSET ?',
+            'SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC LIMIT ? OFFSET ?',
             (limit, offset)
         )
     
     incidents = [dict(row) for row in cursor.fetchall()]
     
-    cursor.execute('SELECT COUNT(*) as count FROM incidents')
+    if date:
+        cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND DATE(first_seen) = ?', (date,))
+    else:
+        cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
     total = cursor.fetchone()['count']
     
     conn.close()

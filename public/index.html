@@ -491,6 +491,15 @@
       border-color: rgba(255, 59, 59, 0.55);
       box-shadow: 0 0 0 1px rgba(255, 59, 59, 0.12) inset;
     }
+
+    /* Filters with 0 incidents */
+    .filter-btn.empty {
+      opacity: 0.55;
+    }
+
+    .filter-btn.empty:hover {
+      opacity: 0.8;
+    }
     
     /* Info Button */
     .info-btn {
@@ -793,6 +802,15 @@
       border-radius: 50%;
       position: relative;
     }
+
+    /* Static (non-pulsing) marker used for History mode */
+    .marker-static {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      position: relative;
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+    }
     
     .marker-pulse::after {
       content: '';
@@ -928,27 +946,29 @@
         <button class="tab active" data-tab="live">Live</button>
         <button class="tab" data-tab="history">History</button>
       </div>
+
+      <!-- Shared filters (apply to Live + History lists) -->
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="cadfd">
+          <img src="/images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
+          <span>CAD-FD/EMS</span>
+        </button>
+        <button class="filter-btn" data-filter="shvfd">
+          <img src="/images/sfd-fire.png" alt="SHVFD" class="filter-logo">
+          <span>SHVFD</span>
+        </button>
+        <button class="filter-btn" data-filter="police">
+          <img src="/images/spd-police.png" alt="Police" class="filter-logo">
+          <span>Police</span>
+        </button>
+        <button class="filter-btn" data-filter="sheriff">
+          <img src="/images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
+          <span>Sheriff</span>
+        </button>
+      </div>
       
       <div id="live-panel">
-        <div class="filter-bar">
-          <button class="filter-btn active" data-filter="all">All</button>
-          <button class="filter-btn" data-filter="fire">
-            <img src="/images/cfd-fire.png" alt="Fire" class="filter-logo">
-            <span>Fire</span>
-          </button>
-          <button class="filter-btn" data-filter="police">
-            <img src="/images/spd-police.png" alt="Police" class="filter-logo">
-            <span>Police</span>
-          </button>
-          <button class="filter-btn" data-filter="sheriff">
-            <img src="/images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
-            <span>Sheriff</span>
-          </button>
-          <button class="filter-btn" data-filter="ems">
-            <img src="/images/sfd-fire.png" alt="EMS" class="filter-logo">
-            <span>EMS</span>
-          </button>
-        </div>
         <div class="incident-list" id="incident-list"></div>
         <div class="stats-panel">
           <div class="stats-grid">
@@ -1007,7 +1027,9 @@
     // Store markers
     const markers = new Map();
     let currentIncidents = [];
+    let currentHistoryIncidents = [];
     let currentFilter = 'all';
+    let mapMode = 'live'; // 'live' | 'history'
     
     // Agency color mapping
     function getAgencyColor(agency) {
@@ -1039,40 +1061,80 @@
       if (filter === 'all') return true;
       
       const agency = incident.agency.toUpperCase();
-      const desc = incident.description.toLowerCase();
       
       switch (filter) {
-        case 'fire':
-          // CFD = Caddo Fire District, SFD = Shreveport Fire Dept
-          return agency.startsWith('CFD') || agency.startsWith('SFD') || 
-                 agency.includes('FIRE') || desc.includes('fire');
+        case 'cadfd':
+          // Caddo Fire Districts + Caddo EMS events live on CFD_* pages
+          return agency.startsWith('CFD');
+        case 'shvfd':
+          // Shreveport Fire Dept live on SFD_* pages
+          return agency.startsWith('SFD');
         case 'police':
           // SPD = Shreveport Police Dept
           return agency === 'SPD' || agency.includes('POLICE');
         case 'sheriff':
           // CSO = Caddo Sheriff's Office
           return agency === 'CSO' || agency.includes('SHERIFF');
-        case 'ems':
-          // EMS calls, medical emergencies
-          return agency.includes('EMS') || desc.includes('medical') || 
-                 desc.includes('ems') || desc.includes('ambulance');
         default:
           return true;
       }
     }
     
+    function filterLabel(filter) {
+      switch (filter) {
+        case 'cadfd': return 'CAD-FD/EMS';
+        case 'shvfd': return 'SHVFD';
+        case 'police': return 'police';
+        case 'sheriff': return 'sheriff';
+        default: return filter;
+      }
+    }
+
     function getFilteredIncidents(incidents, filter) {
       return incidents.filter(inc => matchesFilter(inc, filter));
     }
+
+    // Hide fire-related filters when there are zero matching incidents.
+    // This avoids confusing cases where users click a filter that has no data.
+    function updateFilterButtonVisibility(baseIncidents) {
+      const counts = {
+        cadfd: 0,
+        shvfd: 0,
+      };
+
+      for (const inc of baseIncidents || []) {
+        if (matchesFilter(inc, 'cadfd')) counts.cadfd += 1;
+        if (matchesFilter(inc, 'shvfd')) counts.shvfd += 1;
+      }
+
+      // Always show filter "tabs" even when they have 0 incidents.
+      // Visually dim them so users understand they’re empty, but still allow clicking
+      // (the list will show a "No incidents" message).
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        const f = btn.dataset.filter;
+        if (f === 'cadfd' || f === 'shvfd') {
+          btn.classList.toggle('empty', (counts[f] || 0) === 0);
+        } else {
+          btn.classList.remove('empty');
+        }
+      });
+
+      // Keep active state consistent (especially after fallback)
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === currentFilter);
+      });
+    }
     
     // Create custom marker
-    function createMarker(incident) {
+    function createMarker(incident, { mode = 'live' } = {}) {
       const color = getAgencyColor(incident.agency);
+      const dotClass = mode === 'history' ? 'marker-static' : 'marker-pulse';
+      const size = mode === 'history' ? 14 : 20;
       const icon = L.divIcon({
         className: 'custom-marker',
-        html: `<div class="marker-pulse" style="background: ${color}; color: ${color};"></div>`,
-        iconSize: [20, 20],
-        iconAnchor: [10, 10]
+        html: `<div class="${dotClass}" style="background: ${color}; color: ${color};"></div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
       });
       
       const locationParts = [];
@@ -1091,6 +1153,41 @@
         `);
       
       return marker;
+    }
+
+    // Replace map markers with the given incident set (used for Live and History modes)
+    function setMapMarkers(incidents, { fit = false, mode = mapMode } = {}) {
+      const nextIds = new Set((incidents || []).map(i => i.id));
+
+      // Remove markers not in the next set
+      markers.forEach((marker, id) => {
+        if (!nextIds.has(id)) {
+          if (map.hasLayer(marker)) map.removeLayer(marker);
+          markers.delete(id);
+        }
+      });
+
+      // Add missing markers
+      (incidents || []).forEach(incident => {
+        if (!incident || incident.latitude == null || incident.longitude == null) return;
+        if (!markers.has(incident.id)) {
+          const marker = createMarker(incident, { mode });
+          marker.addTo(map);
+          markers.set(incident.id, marker);
+        } else {
+          const marker = markers.get(incident.id);
+          if (marker && !map.hasLayer(marker)) marker.addTo(map);
+        }
+      });
+
+      if (fit && incidents && incidents.length > 0) {
+        try {
+          const bounds = L.latLngBounds(incidents.map(i => [i.latitude, i.longitude]));
+          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+        } catch (e) {
+          // ignore fit errors
+        }
+      }
     }
     
     // Format time
@@ -1152,45 +1249,24 @@
         
         // Store all incidents
         currentIncidents = allIncidents;
+
+        // Only update shared filter visibility from the active feed when the Live tab is visible.
+        // Otherwise History's filter visibility would get overridden every poll.
+        const livePanel = document.getElementById('live-panel');
+        const liveVisible = livePanel && !livePanel.classList.contains('hidden');
+        if (liveVisible) updateFilterButtonVisibility(allIncidents);
         
         // Apply current filter
         const incidents = getFilteredIncidents(allIncidents, currentFilter);
         
         // Update counts
         document.getElementById('active-count').textContent = allIncidents.length;
+
+        // If we're not on the Live tab, don't touch the map/list (History owns the map).
+        if (!liveVisible) return;
         
-        // Check for new incidents (from all, not filtered)
-        const newIncidentIds = new Set(allIncidents.map(i => i.id));
-        const filteredIds = new Set(incidents.map(i => i.id));
-        
-        // Update markers - show only filtered incidents
-        markers.forEach((marker, id) => {
-          if (!newIncidentIds.has(id)) {
-            // Incident no longer exists at all
-            map.removeLayer(marker);
-            markers.delete(id);
-          } else if (!filteredIds.has(id)) {
-            // Incident exists but filtered out - hide marker
-            map.removeLayer(marker);
-          } else if (!map.hasLayer(marker)) {
-            // Incident passes filter - show marker
-            marker.addTo(map);
-          }
-        });
-        
-        // Add new markers for all incidents (they'll be shown/hidden by filter)
-        allIncidents.forEach(incident => {
-          if (!markers.has(incident.id)) {
-            const marker = createMarker(incident);
-            markers.set(incident.id, marker);
-            // Only add to map if passes filter
-            if (matchesFilter(incident, currentFilter)) {
-              marker.addTo(map);
-            }
-          }
-        });
-        
-        // Update incident list (filtered)
+        // Update map + list (filtered)
+        setMapMarkers(incidents, { mode: 'live' });
         renderIncidentList(incidents);
         
       } catch (error) {
@@ -1202,10 +1278,11 @@
     function renderIncidentList(incidents) {
       const listEl = document.getElementById('incident-list');
       if (incidents.length === 0) {
+        const label = currentFilter === 'all' ? 'active' : filterLabel(currentFilter);
         listEl.innerHTML = `
           <div class="empty-state">
             <div class="icon">📡</div>
-            <p>No ${currentFilter === 'all' ? 'active' : currentFilter} incidents</p>
+            <p>No ${label} incidents</p>
             <p style="font-size: 11px; margin-top: 10px;">${currentFilter === 'all' ? 'Waiting for data...' : 'Try a different filter'}</p>
           </div>
         `;
@@ -1222,22 +1299,21 @@
       document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === filter);
       });
-      
-      // Filter incidents
-      const filtered = getFilteredIncidents(currentIncidents, filter);
-      
-      // Update markers visibility
-      markers.forEach((marker, id) => {
-        const incident = currentIncidents.find(i => i.id === id);
-        if (incident && matchesFilter(incident, filter)) {
-          if (!map.hasLayer(marker)) marker.addTo(map);
-        } else {
-          if (map.hasLayer(marker)) map.removeLayer(marker);
-        }
-      });
-      
-      // Update list
-      renderIncidentList(filtered);
+
+      const livePanel = document.getElementById('live-panel');
+      const historyPanel = document.getElementById('history-panel');
+      const liveVisible = livePanel && !livePanel.classList.contains('hidden');
+      const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
+
+      if (historyVisible) {
+        const historyFiltered = getFilteredIncidents(currentHistoryIncidents, filter);
+        renderHistoryList(historyFiltered, historySelectedDate, { total: currentHistoryIncidents.length });
+        setMapMarkers(historyFiltered, { fit: false, mode: 'history' });
+      } else if (liveVisible) {
+        const filtered = getFilteredIncidents(currentIncidents, filter);
+        renderIncidentList(filtered);
+        setMapMarkers(filtered, { fit: false, mode: 'live' });
+      }
     }
     
     // Update stats
@@ -1277,24 +1353,58 @@
         const url = date ? `/api/incidents/history?date=${date}&limit=200` : '/api/incidents/history?limit=200';
         const response = await fetch(url);
         const data = await response.json();
-        
-        const listEl = document.getElementById('history-list');
-        if (data.incidents.length === 0) {
-          const label = date ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : 'selected date';
-          listEl.innerHTML = `
-            <div class="empty-state">
-              <div class="icon">📋</div>
-              <p>No incidents available for</p>
-              <p style="font-size: 12px; margin-top: 6px; color: var(--text); font-weight: 600;">${label}</p>
-              <p style="font-size: 11px; margin-top: 10px;">Try another date (or the cache may not include that day yet).</p>
-            </div>
-          `;
-        } else {
-          listEl.innerHTML = data.incidents.map(inc => createIncidentCard(inc)).join('');
+
+        currentHistoryIncidents = Array.isArray(data.incidents) ? data.incidents : [];
+        // Only update shared filter visibility from History when the History tab is visible.
+        const historyPanel = document.getElementById('history-panel');
+        const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
+        if (historyVisible) {
+          updateFilterButtonVisibility(currentHistoryIncidents);
+        }
+        const filtered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
+        renderHistoryList(filtered, date, { total: currentHistoryIncidents.length });
+
+        // Replace map markers with history results when History tab is active
+        if (historyVisible) {
+          setMapMarkers(filtered, { fit: true, mode: 'history' });
         }
       } catch (error) {
         console.error('Failed to fetch history:', error);
       }
+    }
+
+    function renderHistoryList(incidents, date, { total = 0 } = {}) {
+      const listEl = document.getElementById('history-list');
+      const dateLabel = date
+        ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+        : 'selected date';
+
+      if (total === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <p>No incidents available for</p>
+            <p style="font-size: 12px; margin-top: 6px; color: var(--text); font-weight: 600;">${dateLabel}</p>
+            <p style="font-size: 11px; margin-top: 10px;">Try another date (or the cache may not include that day yet).</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (incidents.length === 0) {
+        const filterLabelStr = currentFilter === 'all' ? 'incidents' : `${filterLabel(currentFilter)} incidents`;
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📋</div>
+            <p>No ${filterLabelStr} for</p>
+            <p style="font-size: 12px; margin-top: 6px; color: var(--text); font-weight: 600;">${dateLabel}</p>
+            <p style="font-size: 11px; margin-top: 10px;">Try another filter or date.</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = incidents.map(inc => createIncidentCard(inc, false)).join('');
     }
 
     // Inline History date picker (no browser-native date input)
@@ -1430,10 +1540,18 @@
         document.getElementById('history-panel').classList.toggle('hidden', tabName !== 'history');
         
         if (tabName === 'history') {
+          mapMode = 'history';
+          // Clear live markers immediately; history will repopulate after fetch
+          setMapMarkers([], { mode: 'history' });
           // Make sure the date UI is initialized and load that date's cache
           setHistoryDate(historySelectedDate, { load: true });
           toggleDatePicker(false);
         } else {
+          mapMode = 'live';
+          // Live tab: make filter visibility reflect the active feed immediately
+          updateFilterButtonVisibility(currentIncidents);
+          // Render live markers immediately from the last-known active incidents
+          setMapMarkers(getFilteredIncidents(currentIncidents, currentFilter), { fit: false, mode: 'live' });
           toggleDatePicker(false);
         }
       });
