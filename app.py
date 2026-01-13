@@ -8,7 +8,10 @@ import sqlite3
 import hashlib
 import json
 import time
-from datetime import datetime
+import argparse
+import os
+import sys
+from datetime import datetime, timezone
 from threading import Thread
 from flask import Flask, jsonify, request, send_from_directory
 import requests
@@ -22,10 +25,32 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 # Database setup
 DB_PATH = 'caddo911.db'
 
+QUIET = False
+
+def log(message: str) -> None:
+    """Lightweight logger (avoids emoji for Windows terminals)."""
+    if not QUIET:
+        print(message, flush=True)
+
+def db_connect(*, row_factory: bool = False) -> sqlite3.Connection:
+    """
+    Create a SQLite connection with sensible defaults for concurrent reader/writer usage
+    (collector + web UI in the same process).
+    """
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    if row_factory:
+        conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000;")
+    return conn
+
 def init_db():
     """Initialize SQLite database with incidents table"""
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_connect()
     cursor = conn.cursor()
+    # Better concurrency for collector + UI
+    cursor.execute("PRAGMA journal_mode = WAL;")
+    cursor.execute("PRAGMA synchronous = NORMAL;")
+    cursor.execute("PRAGMA busy_timeout = 5000;")
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS incidents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +132,7 @@ def geocode_address(street, cross_streets, municipality):
             if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
                 result = {'lat': location.latitude, 'lng': location.longitude}
                 geocode_cache[cache_key] = result
-                print(f"  [ARC] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})", flush=True)
+                log(f"  [ARC] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
                 return result
         except Exception:
             pass
@@ -120,12 +145,12 @@ def geocode_address(street, cross_streets, municipality):
             if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
                 result = {'lat': location.latitude, 'lng': location.longitude}
                 geocode_cache[cache_key] = result
-                print(f"  [OSM] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})", flush=True)
+                log(f"  [OSM] {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
                 return result
         except Exception:
             pass
     
-    print(f"  [--] {street_clean or '?'} @ {first_cross or '?'}", flush=True)
+    log(f"  [--] {street_clean or '?'} @ {first_cross or '?'}")
     
     # Fallback to Shreveport area
     offset = lambda: (random.random() - 0.5) * 0.04
@@ -212,9 +237,9 @@ def process_incidents(incidents):
     if not incidents:
         return
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = db_connect()
     cursor = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     current_hashes = set()
     
     for incident in incidents:
@@ -249,7 +274,7 @@ def process_incidents(incidents):
                 now,
                 now
             ))
-            print(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
+            log(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
     
     # Mark incidents no longer in feed as inactive
     cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
@@ -261,17 +286,17 @@ def process_incidents(incidents):
     
     conn.commit()
     conn.close()
-    last_update = datetime.utcnow().isoformat()
+    last_update = datetime.now(timezone.utc).isoformat()
 
 def background_scrape():
     """Background task to scrape incidents periodically"""
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping Caddo 911...")
+    log(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping Caddo 911...")
     incidents = scrape_incidents()
     if incidents:
         process_incidents(incidents)
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Processed {len(incidents)} active incidents")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Processed {len(incidents)} active incidents")
     else:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents found or scraping failed")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents found or scraping failed")
 
 # API Routes
 @app.route('/')
@@ -280,8 +305,7 @@ def index():
 
 @app.route('/api/incidents/active')
 def get_active_incidents():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = db_connect(row_factory=True)
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM incidents WHERE is_active = 1 ORDER BY time DESC')
     incidents = [dict(row) for row in cursor.fetchall()]
@@ -294,8 +318,7 @@ def get_history():
     offset = request.args.get('offset', 0, type=int)
     date = request.args.get('date')  # YYYY-MM-DD format
     
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = db_connect(row_factory=True)
     cursor = conn.cursor()
     
     # History should not include incidents that are currently active on Caddo911.
@@ -324,8 +347,7 @@ def get_history():
 
 @app.route('/api/stats')
 def get_stats():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = db_connect(row_factory=True)
     cursor = conn.cursor()
     
     cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 1')
@@ -371,22 +393,137 @@ def force_refresh():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    print("[CADDO 911] Initializing Live Feed...")
-    
-    # Initialize database
+def start_collector(*, scrape_interval_seconds: int = 60, initial_scrape: bool = True) -> BackgroundScheduler:
+    """Start background scraping + DB persistence, return the scheduler."""
     init_db()
-    
-    # Initial scrape
-    background_scrape()
-    
-    # Start background scheduler - scrape every 60 seconds
+    if initial_scrape:
+        background_scrape()
+
     scheduler = BackgroundScheduler()
-    scheduler.add_job(background_scrape, 'interval', seconds=60)
+    scheduler.add_job(
+        background_scrape,
+        'interval',
+        seconds=scrape_interval_seconds,
+        max_instances=1,
+        coalesce=True,
+    )
     scheduler.start()
-    
-    print("[CADDO 911] Live running at http://localhost:3911")
-    print("            Press Ctrl+C to stop")
-    
-    # Run Flask app
-    app.run(host='0.0.0.0', port=3911, debug=False, use_reloader=False)
+    return scheduler
+
+def run_webserver(*, host: str = '0.0.0.0', port: int = 3911) -> None:
+    """Run the Flask web UI server (blocking)."""
+    log(f"[CADDO 911] Web UI running at http://localhost:{port}")
+    log("            Press Ctrl+C to stop")
+    app.run(host=host, port=port, debug=False, use_reloader=False)
+
+def _read_key_nonblocking() -> str | None:
+    """
+    Non-blocking key read.
+    - Windows: reads single key presses via msvcrt (no Enter needed)
+    - Other: falls back to reading stdin when available (may require Enter)
+    """
+    if os.name == 'nt':
+        try:
+            import msvcrt  # type: ignore
+            if msvcrt.kbhit():
+                return msvcrt.getwch()
+        except Exception:
+            return None
+        return None
+
+    try:
+        import select
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if r:
+            return sys.stdin.read(1)
+    except Exception:
+        return None
+    return None
+
+def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_interval_seconds: int = 60) -> None:
+    """
+    Start in 'event gather' mode (collector only), and allow starting the web UI on demand.
+    Press '2' to start the web UI. Press 'q' to quit.
+    """
+    scheduler = start_collector(scrape_interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    web_thread: Thread | None = None
+
+    log("[CADDO 911] Event gather mode is running (collector only).")
+    log("          Press '2' to start the web UI, 'q' to quit.")
+
+    try:
+        while True:
+            key = _read_key_nonblocking()
+            if key:
+                key = key.strip().lower()
+                if key == '2':
+                    if web_thread is None or not web_thread.is_alive():
+                        log("[CADDO 911] Starting web UI...")
+                        web_thread = Thread(target=run_webserver, kwargs={'host': host, 'port': port}, daemon=True)
+                        web_thread.start()
+                    else:
+                        log("[CADDO 911] Web UI already running.")
+                elif key in ('q',):
+                    break
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        log("[CADDO 911] Collector stopped.")
+
+def run_gather_mode(*, scrape_interval_seconds: int = 60) -> None:
+    """Collector-only mode. No web server, just keeps filling the DB."""
+    scheduler = start_collector(scrape_interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    log("[CADDO 911] Collector-only mode running. Press Ctrl+C to stop.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        log("[CADDO 911] Collector stopped.")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Caddo 911 Live Feed")
+    parser.add_argument("--mode", choices=["serve", "gather", "interactive"], default="serve",
+                        help="serve: collector + web UI (default); gather: collector only; interactive: collector only, press 2 to start UI")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=3911)
+    parser.add_argument("--interval", type=int, default=60, help="scrape interval in seconds")
+    parser.add_argument("--quiet", action="store_true", help="reduce console output (recommended for gather mode)")
+    args = parser.parse_args()
+
+    global QUIET
+    QUIET = bool(args.quiet or args.mode == "gather")
+
+    if args.mode == "gather":
+        run_gather_mode(scrape_interval_seconds=args.interval)
+        return
+
+    if args.mode == "interactive":
+        run_interactive_mode(host=args.host, port=args.port, scrape_interval_seconds=args.interval)
+        return
+
+    # serve mode: collector + web UI immediately
+    scheduler = start_collector(scrape_interval_seconds=args.interval, initial_scrape=True)
+    try:
+        run_webserver(host=args.host, port=args.port)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            scheduler.shutdown(wait=False)
+        except Exception:
+            pass
+        log("[CADDO 911] Shutting down.")
+
+if __name__ == '__main__':
+    main()
