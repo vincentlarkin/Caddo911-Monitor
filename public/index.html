@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CADDO 911 LIVE</title>
+  <link rel="icon" href="images/caddo911logo.png" type="image/png">
+  <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
+  <link rel="apple-touch-icon" href="images/caddo911logo.png">
+  <meta property="og:title" content="Caddo 911 Live Feed">
+  <meta property="og:description" content="Live emergency incident map for Caddo Parish, Louisiana.">
+  <meta property="og:image" content="images/caddo911logo.png">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -73,19 +82,22 @@
     }
     
     .logo-icon {
-      width: 50px;
-      height: 50px;
-      background: linear-gradient(135deg, var(--red) 0%, #cc0000 100%);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: bold;
-      color: white;
-      text-shadow: 0 2px 10px rgba(0,0,0,0.5);
-      box-shadow: 0 0 30px var(--red-glow);
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      overflow: hidden;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      box-shadow: 0 0 30px rgba(255, 59, 59, 0.12);
       animation: logo-pulse 2s ease-in-out infinite;
+      display: block;
+    }
+    
+    .logo-icon-img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
     }
     
     @keyframes logo-pulse {
@@ -98,6 +110,7 @@
       font-size: 28px;
       font-weight: 700;
       background: linear-gradient(90deg, var(--text), var(--red));
+      background-clip: text;
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       letter-spacing: 2px;
@@ -139,6 +152,35 @@
       animation: blink 1s ease-in-out infinite;
     }
     
+    .map-theme-toggle {
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
+      color: var(--text);
+      font-size: 14px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 32px;
+    }
+    
+    .map-theme-toggle:hover {
+      border-color: var(--text-dim);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.1);
+      transform: translateY(-1px);
+    }
+    
+    .map-theme-toggle .map-theme-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+    
     @keyframes blink {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
@@ -176,16 +218,89 @@
       background: #0a0a12;
     }
     
-    .map-overlay {
+    .legend-container {
       position: absolute;
       top: 20px;
       left: 20px;
       z-index: 1000;
+    }
+    
+    .dot-stack {
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+    }
+    
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 2px rgba(0,0,0,0.30),
+        0 0 10px rgba(0,0,0,0.25);
+    }
+    
+    .legend-collapse {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      width: 22px;
+      height: 22px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      background: var(--bg-card);
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: grid;
+      place-items: center;
+      font-size: 12px;
+      line-height: 1;
+    }
+    
+    .legend-collapse:hover {
+      background: var(--bg-dark);
+      border-color: rgba(255, 59, 59, 0.55);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.12);
+    }
+    
+    .map-overlay {
       background: rgba(18, 18, 26, 0.95);
       padding: 15px 20px;
       border-radius: 10px;
       border: 1px solid var(--border);
       backdrop-filter: blur(10px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+      width: 240px;
+      transition: width 0.22s ease, padding 0.22s ease;
+      position: relative;
+    }
+    
+    .legend-content {
+      padding-right: 32px; /* keep space for the collapse arrow */
+    }
+    
+    .legend-mini {
+      display: none;
+      height: 100%;
+      width: 100%;
+      padding-top: 34px;
+      justify-content: flex-start;
+      align-items: center;
+    }
+    
+    .legend-container.collapsed .map-overlay {
+      width: 50px;
+      padding: 9px 7px;
+    }
+    
+    .legend-container.collapsed .legend-content {
+      display: none;
+    }
+    
+    .legend-container.collapsed .legend-mini {
+      display: flex;
     }
     
     .map-overlay h3 {
@@ -431,6 +546,25 @@
       flex-shrink: 0;
     }
     
+    .history-count {
+      margin-left: auto;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(59, 139, 255, 0.35);
+      background: rgba(59, 139, 255, 0.12);
+      color: var(--text);
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    
+    .history-count.hidden {
+      display: none !important;
+    }
+    
     .filter-btn {
       display: flex;
       align-items: center;
@@ -506,24 +640,57 @@
       color: white;
     }
     
-    /* Info Panel */
-    .info-panel {
+    /* Info Modal */
+    .info-modal {
       position: fixed;
-      top: 80px;
-      right: 20px;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      z-index: 2000;
-      width: 280px;
+      inset: 0;
       display: none;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
     }
     
-    .info-panel.active {
-      display: block;
+    .info-modal.open {
+      display: flex;
+    }
+    
+    .info-modal .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+    }
+    
+    .info-modal .modal-dialog {
+      position: relative;
+      width: min(520px, 90vw);
+      background: linear-gradient(180deg, rgba(18, 18, 26, 0.95), rgba(18, 18, 26, 0.9));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 22px 16px;
+      box-shadow: 0 12px 60px rgba(0, 0, 0, 0.55);
+      z-index: 1;
       animation: slideIn 0.2s ease-out;
+    }
+    
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .modal-close:hover {
+      background: var(--red);
+      border-color: var(--red);
+      color: white;
     }
     
     @keyframes slideIn {
@@ -531,9 +698,26 @@
       to { opacity: 1; transform: translateY(0); }
     }
     
+    .info-hero {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    
+    .info-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 12px;
+      object-fit: cover;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 0 20px rgba(255, 59, 59, 0.12);
+    }
+    
     .info-content h3 {
       font-family: 'Space Grotesk', sans-serif;
-      font-size: 16px;
+      font-size: 18px;
       color: var(--red);
       margin-bottom: 8px;
     }
@@ -550,6 +734,41 @@
       flex-direction: column;
       gap: 8px;
       margin-bottom: 15px;
+    }
+    
+    /* Notion-style disclaimer callout (blue) */
+    .notion-callout {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 12px 12px 12px 12px;
+      margin: 12px 0 14px;
+      border-radius: 12px;
+      background: rgba(59, 139, 255, 0.12);
+      border: 1px solid rgba(59, 139, 255, 0.28);
+      border-left: 4px solid rgba(59, 139, 255, 0.9);
+      color: rgba(220, 235, 255, 0.95);
+    }
+    
+    .notion-callout .icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      background: rgba(59, 139, 255, 0.18);
+      border: 1px solid rgba(59, 139, 255, 0.28);
+      color: rgba(220, 235, 255, 0.95);
+      flex: 0 0 auto;
+      margin-top: 1px;
+      font-weight: 700;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    
+    .notion-callout p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.45;
     }
     
     .info-link {
@@ -866,6 +1085,18 @@
       filter: hue-rotate(18deg) saturate(1.35) brightness(1.02);
     }
     
+    /* Light-map overrides */
+    body.map-light .leaflet-labels-pane .leaflet-tile,
+    body.map-light .leaflet-base-pane .leaflet-tile {
+      filter: none;
+      opacity: 1;
+    }
+    
+    /* Prevent background scroll when modal is open */
+    body.modal-open {
+      overflow: hidden;
+    }
+    
     /* Responsive */
     @media (max-width: 900px) {
       .main-container {
@@ -883,7 +1114,10 @@
 <body>
   <header class="header">
     <div class="logo">
-      <div class="logo-icon">911</div>
+      <picture class="logo-icon">
+        <source srcset="images/caddo911logo.webp" type="image/webp">
+        <img src="images/caddo911logo.png" alt="Caddo 911" class="logo-icon-img">
+      </picture>
       <div class="logo-text">
         <h1>CADDO PARISH</h1>
         <p>Emergency Dispatch Live Feed</p>
@@ -902,13 +1136,38 @@
         <span class="status-label">Active</span>
         <span class="status-value" id="active-count">0</span>
       </div>
+      <div class="status-item">
+        <span class="status-label">Map Theme</span>
+        <button class="map-theme-toggle" id="map-theme-toggle" aria-pressed="true" title="Toggle map theme">
+          <span class="map-theme-icon" aria-hidden="true">☀️</span>
+        </button>
+      </div>
       <button class="info-btn" onclick="toggleInfoPanel()" title="About">i</button>
     </div>
-    
-    <div class="info-panel" id="info-panel">
+  </header>
+  
+  <div class="info-modal" id="info-modal" aria-hidden="true">
+    <div class="modal-backdrop" role="presentation"></div>
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-label="About Caddo 911 Live">
+      <button class="modal-close" type="button" aria-label="Close" id="info-close">×</button>
       <div class="info-content">
-        <h3>Caddo 911 Live Feed</h3>
-        <p>Real-time emergency incident tracker for Caddo Parish, Louisiana</p>
+        <div class="info-hero">
+          <img src="https://www.vincentlarkin.com/images/site-emblem.png" alt="Vincent Larkin emblem" class="info-logo">
+          <div>
+            <h3>Caddo 911 Live Feed</h3>
+            <p style="margin-bottom: 6px;">Real-time emergency incident tracker for Caddo Parish, Louisiana.</p>
+            <p style="margin-bottom: 0;">Built and maintained by Vincent Larkin.</p>
+          </div>
+        </div>
+        
+        <div class="notion-callout" role="note" aria-label="Disclaimer">
+          <div class="icon" aria-hidden="true">i</div>
+          <p>
+            This page is <strong>not affiliated</strong> with the State of Louisiana, any department of Louisiana, or any department or technology systems within Caddo Parish.
+            This is a citizen project which was not funded by Caddo Parish and no state or parish funding was spent on this. <strong>$0.00</strong> spent on this.
+          </p>
+        </div>
+        
         <div class="info-links">
           <a href="https://github.com/vincentlarkin" target="_blank" class="info-link">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
@@ -926,27 +1185,43 @@
         <p class="info-credit">Created by Vincent Larkin</p>
       </div>
     </div>
-  </header>
+  </div>
   
   <main class="main-container">
     <div class="map-container">
       <div id="map"></div>
-      <div class="map-overlay">
-        <h3>Legend</h3>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: var(--red)"></div>
-          <span>High severity</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: var(--amber)"></div>
-          <span>Medium severity</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot" style="background: var(--blue)"></div>
-          <span>Low severity</span>
-        </div>
-        <div style="margin-top: 10px; font-size: 10px; color: var(--text-dim); line-height: 1.4;">
-          Colors = severity. Use the sidebar filters to limit by agency.
+      <div class="legend-container" id="legend-container">
+        <div class="map-overlay" id="map-legend">
+          <button class="legend-collapse" id="legend-collapse" type="button" aria-expanded="true" aria-label="Collapse legend" title="Collapse legend">◀</button>
+          
+          <!-- Collapsed "handle" view (drawer-closed) -->
+          <div class="legend-mini" aria-hidden="true">
+            <div class="dot-stack">
+              <span class="dot" style="background: var(--red);"></span>
+              <span class="dot" style="background: var(--amber);"></span>
+              <span class="dot" style="background: var(--blue);"></span>
+            </div>
+          </div>
+          
+          <!-- Expanded content -->
+          <div class="legend-content">
+            <h3>Legend</h3>
+            <div class="legend-item">
+              <div class="legend-dot" style="background: var(--red)"></div>
+              <span>High severity</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot" style="background: var(--amber)"></div>
+              <span>Medium severity</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot" style="background: var(--blue)"></div>
+              <span>Low severity</span>
+            </div>
+            <div style="margin-top: 10px; font-size: 10px; color: var(--text-dim); line-height: 1.4;">
+              Colors = severity. Use the sidebar filters to limit by agency.
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -976,6 +1251,10 @@
           <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
           <span>Sheriff</span>
         </button>
+        <div class="history-count hidden" id="history-count">
+          <span>Incident total:</span>
+          <strong id="history-count-value">0</strong>
+        </div>
       </div>
       
       <div id="live-panel">
@@ -1021,8 +1300,16 @@
   <script>
     // Initialize map centered on Shreveport/Caddo Parish
     const map = L.map('map', {
-      zoomControl: false
+      zoomControl: false,
+      minZoom: 7,
+      maxZoom: 19,
+      worldCopyJump: true
     }).setView([32.5252, -93.7502], 11);
+    
+    // Keep view constrained to a few-state window around Louisiana/Texas/Arkansas
+    const southWest = L.latLng(29.0, -98.0);
+    const northEast = L.latLng(34.5, -90.0);
+    map.setMaxBounds(L.latLngBounds(southWest, northEast));
     
     // Dark basemap (keeps the UI in dark mode) with a separate label overlay for readability.
     // Base (no labels) in its own pane so we can color-grade it without affecting labels.
@@ -1030,28 +1317,153 @@
     map.getPane('base').classList.add('leaflet-base-pane');
     map.getPane('base').style.zIndex = 200;
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
-      pane: 'base',
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
-      subdomains: 'abcd',
-      maxZoom: 19
-    }).addTo(map);
-
-    // Labels overlay (higher contrast / brighter via CSS)
     map.createPane('labels');
     map.getPane('labels').classList.add('leaflet-labels-pane');
     map.getPane('labels').style.zIndex = 650;
     map.getPane('labels').style.pointerEvents = 'none';
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+    // Tile layers for light + dark themes
+    const lightBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+      pane: 'base',
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+      crossOrigin: true
+    });
+    const lightLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
       pane: 'labels',
       subdomains: 'abcd',
       maxZoom: 19,
-      opacity: 1
-    }).addTo(map);
+      opacity: 0.65,
+      crossOrigin: true
+    });
+    const osmFallbackTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      pane: 'base',
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+      subdomains: 'abc',
+      crossOrigin: true
+    });
+    const tileLayers = {
+      dark: {
+        base: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+          pane: 'base',
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: 'abcd',
+          maxZoom: 19
+        }),
+        labels: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+          pane: 'labels',
+          subdomains: 'abcd',
+          maxZoom: 19,
+          opacity: 1
+        })
+      },
+      light: {
+        base: lightBase,
+        labels: lightLabels
+      }
+    };
+    
+    let mapTheme = 'light';
+    
+    function setMapTheme(theme) {
+      mapTheme = theme === 'dark' ? 'dark' : 'light';
+      // Remove any existing layers
+      Object.values(tileLayers.dark).forEach(layer => { if (map.hasLayer(layer)) map.removeLayer(layer); });
+      Object.values(tileLayers.light).forEach(layer => { if (map.hasLayer(layer)) map.removeLayer(layer); });
+      
+      const layersToAdd = tileLayers[mapTheme];
+      Object.values(layersToAdd).forEach(layer => layer.addTo(map));
+      
+      // If light tiles fail, fall back to standard OSM automatically
+      if (mapTheme === 'light' && layersToAdd.base === lightBase) {
+        const onError = () => {
+          if (map.hasLayer(lightBase)) {
+            map.removeLayer(lightBase);
+            osmFallbackTiles.addTo(map);
+            tileLayers.light.base = osmFallbackTiles;
+            // drop labels to avoid mismatch
+            if (map.hasLayer(lightLabels)) map.removeLayer(lightLabels);
+            delete tileLayers.light.labels;
+          }
+        };
+        lightBase.once('tileerror', onError);
+      }
+      
+      document.body.classList.toggle('map-light', mapTheme === 'light');
+      document.body.classList.toggle('map-dark', mapTheme === 'dark');
+      
+      const toggle = document.getElementById('map-theme-toggle');
+      if (toggle) {
+        const iconEl = toggle.querySelector('.map-theme-icon');
+        if (iconEl) iconEl.textContent = mapTheme === 'light' ? '☀️' : '🌙';
+        toggle.setAttribute('aria-pressed', String(mapTheme === 'light'));
+      }
+    }
+    
+    // Default to light mode
+    setMapTheme('light');
+    
+    // Legend drawer (auto-collapse on narrow screens)
+    const legendContainer = document.getElementById('legend-container');
+    const legendPanel = document.getElementById('map-legend');
+    const legendCollapse = document.getElementById('legend-collapse');
+    let legendExpandedHeight = null;
+    
+    function measureLegendExpandedHeight() {
+      if (!legendPanel) return;
+      // Ensure height is auto for measurement
+      legendPanel.style.height = '';
+      legendExpandedHeight = legendPanel.offsetHeight;
+    }
+    
+    function setLegendCollapsed(collapsed) {
+      if (!legendContainer || !legendPanel) return;
+      legendContainer.classList.toggle('collapsed', collapsed);
+      
+      // Keep the same height (drawer closes horizontally only)
+      if (collapsed && legendExpandedHeight) {
+        legendPanel.style.height = `${legendExpandedHeight}px`;
+      } else {
+        legendPanel.style.height = '';
+        // When expanding, refresh measured height for the current layout
+        requestAnimationFrame(measureLegendExpandedHeight);
+      }
+      
+      if (legendCollapse) {
+        legendCollapse.setAttribute('aria-expanded', String(!collapsed));
+        legendCollapse.textContent = collapsed ? '▶' : '◀';
+        legendCollapse.title = collapsed ? 'Expand legend' : 'Collapse legend';
+        legendCollapse.setAttribute('aria-label', collapsed ? 'Expand legend' : 'Collapse legend');
+      }
+    }
+    
+    // Initial measurement (expanded state), then optionally collapse for smaller screens
+    measureLegendExpandedHeight();
+    if (window.innerWidth < 960) setLegendCollapsed(true);
+    
+    legendCollapse?.addEventListener('click', () => {
+      const isCollapsed = legendContainer?.classList.contains('collapsed');
+      setLegendCollapsed(!isCollapsed);
+    });
+    
+    // Keep measurements accurate if the layout changes
+    window.addEventListener('resize', () => {
+      if (!legendContainer?.classList.contains('collapsed')) {
+        measureLegendExpandedHeight();
+      }
+    });
     
     // Add zoom control to bottom right
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+    
+    const mapThemeToggle = document.getElementById('map-theme-toggle');
+    if (mapThemeToggle) {
+      mapThemeToggle.addEventListener('click', () => {
+        setMapTheme(mapTheme === 'light' ? 'dark' : 'light');
+      });
+    }
     
     // Store markers
     const markers = new Map();
@@ -1413,19 +1825,24 @@
       map.flyTo([lat, lng], 15, { duration: 0.5 });
     };
     
-    // Toggle info panel
-    window.toggleInfoPanel = function() {
-      const panel = document.getElementById('info-panel');
-      panel.classList.toggle('active');
+    // Info modal
+    const infoModal = document.getElementById('info-modal');
+    const infoClose = document.getElementById('info-close');
+    
+    window.toggleInfoPanel = function(forceOpen) {
+      if (!infoModal) return;
+      const next = typeof forceOpen === 'boolean' ? forceOpen : !infoModal.classList.contains('open');
+      infoModal.classList.toggle('open', next);
+      infoModal.setAttribute('aria-hidden', String(!next));
+      document.body.classList.toggle('modal-open', next);
     };
     
-    // Close info panel when clicking outside
-    document.addEventListener('click', function(e) {
-      const panel = document.getElementById('info-panel');
-      const btn = document.querySelector('.info-btn');
-      if (!panel.contains(e.target) && !btn.contains(e.target)) {
-        panel.classList.remove('active');
-      }
+    infoClose?.addEventListener('click', () => toggleInfoPanel(false));
+    infoModal?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal-backdrop')) toggleInfoPanel(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && infoModal?.classList.contains('open')) toggleInfoPanel(false);
     });
     
     // Update incidents
@@ -1565,6 +1982,7 @@
           updateFilterButtonVisibility(currentHistoryIncidents);
         }
         const filtered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
+        updateHistoryCount(currentHistoryIncidents.length, date);
         renderHistoryList(filtered, date, { total: currentHistoryIncidents.length });
 
         // Replace map markers with history results when History tab is active
@@ -1574,6 +1992,14 @@
       } catch (error) {
         console.error('Failed to fetch history:', error);
       }
+    }
+
+    function updateHistoryCount(total, date) {
+      const countWrap = document.getElementById('history-count');
+      const countValue = document.getElementById('history-count-value');
+      if (!countWrap || !countValue) return;
+      countValue.textContent = total.toString();
+      countWrap.classList.remove('hidden');
     }
 
     function renderHistoryList(incidents, date, { total = 0 } = {}) {
@@ -1751,6 +2177,8 @@
           toggleDatePicker(false);
         } else {
           mapMode = 'live';
+          const countWrap = document.getElementById('history-count');
+          if (countWrap) countWrap.classList.add('hidden');
           // Live tab: make filter visibility reflect the active feed immediately
           updateFilterButtonVisibility(currentIncidents);
           // Render live markers immediately from the last-known active incidents
