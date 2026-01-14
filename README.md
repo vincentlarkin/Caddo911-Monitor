@@ -77,7 +77,7 @@ See the GitHub wiki page: [Self-hosting](https://github.com/vincentlarkin/Caddo9
 
 ## Wiki (in-repo)
 
-This repo also includes wiki pages in `wiki/` (handy as source docs you can copy into GitHub Wiki):
+This repo also includes wiki pages in `wiki/`:
 
 - [Behavior](wiki/Behavior.md)
 - [Scraping](wiki/Scraping.md)
