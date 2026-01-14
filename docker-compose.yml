@@ -1,3 +1,4 @@
+version: "3.8"
 services:
   collector:
     build: .
@@ -17,17 +18,13 @@ services:
 
   web:
     build: .
-    # Production WSGI server (serves UI + API, reads from the shared SQLite DB)
     command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:3911", "app:app"]
     environment:
       - CADDO911_DB_PATH=/data/caddo911.db
-      # Protect the UI/API (required for safe self-hosting)
-      - CADDO911_AUTH_USER=change-me
-      - CADDO911_AUTH_PASS=change-me-too
     volumes:
       - caddo911-data:/data
     ports:
-      - "3911:3911"
+      - "127.0.0.1:3911:3911"
     depends_on:
       - collector
     restart: unless-stopped
@@ -41,4 +38,3 @@ services:
 
 volumes:
   caddo911-data:
-
