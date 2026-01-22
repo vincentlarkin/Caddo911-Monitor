@@ -207,6 +207,11 @@
             </svg>
           </button>
           <div class="date-picker" id="date-picker" aria-hidden="true"></div>
+          <div class="history-pagination hidden" id="history-pagination" aria-label="History pages">
+            <button type="button" class="page-btn" id="history-prev" aria-label="Previous page">‹</button>
+            <div class="page-status" id="history-page-status">Page 1 of 1</div>
+            <button type="button" class="page-btn" id="history-next" aria-label="Next page">›</button>
+          </div>
         </div>
         <div class="incident-list" id="history-list"></div>
       </div>
@@ -424,6 +429,9 @@
     let currentFilter = 'all';
     let currentSort = 'recent'; // 'recent' | 'urgency'
     let mapMode = 'live'; // 'live' | 'history'
+    let historyPage = 1;
+    const historyPageSize = 50;
+    let historyTotal = 0;
     
     // Agency color mapping
     function getAgencyColor(agency) {
@@ -954,11 +962,15 @@
     // Load history
     async function loadHistory(date) {
       try {
-        const url = date ? `api/incidents/history?date=${date}&limit=200` : 'api/incidents/history?limit=200';
+        const offset = (historyPage - 1) * historyPageSize;
+        const url = date
+          ? `api/incidents/history?date=${date}&limit=${historyPageSize}&offset=${offset}`
+          : `api/incidents/history?limit=${historyPageSize}&offset=${offset}`;
         const response = await fetch(url);
         const data = await response.json();
 
         currentHistoryIncidents = Array.isArray(data.incidents) ? data.incidents : [];
+        historyTotal = Number(data.total || 0);
         // Only update shared filter visibility from History when the History tab is visible.
         const historyPanel = document.getElementById('history-panel');
         const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
@@ -966,8 +978,9 @@
           updateFilterButtonVisibility(currentHistoryIncidents);
         }
         const filtered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
-        updateHistoryCount(currentHistoryIncidents.length, date);
-        renderHistoryList(filtered, date, { total: currentHistoryIncidents.length });
+        updateHistoryCount(historyTotal, date);
+        updateHistoryPagination();
+        renderHistoryList(filtered, date, { total: historyTotal });
 
         // Replace map markers with history results when History tab is active
         if (historyVisible) {
@@ -984,6 +997,21 @@
       if (!countWrap || !countValue) return;
       countValue.textContent = total.toString();
       countWrap.classList.remove('hidden');
+    }
+
+    function updateHistoryPagination() {
+      const pagination = document.getElementById('history-pagination');
+      const status = document.getElementById('history-page-status');
+      const prev = document.getElementById('history-prev');
+      const next = document.getElementById('history-next');
+      if (!pagination || !status || !prev || !next) return;
+
+      const totalPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
+      historyPage = Math.min(Math.max(historyPage, 1), totalPages);
+      status.textContent = `Page ${historyPage} of ${totalPages}`;
+      prev.disabled = historyPage <= 1;
+      next.disabled = historyPage >= totalPages;
+      pagination.classList.toggle('hidden', totalPages <= 1);
     }
 
     function renderHistoryList(incidents, date, { total = 0 } = {}) {
@@ -1087,6 +1115,7 @@
       const d = parseISODate(iso);
       d.setDate(1);
       historyViewMonth = d;
+      historyPage = 1;
       if (load) loadHistory(iso);
       renderDatePicker();
     }
@@ -1180,6 +1209,23 @@
         setHistoryDate(date, { load: true });
         toggleDatePicker(false);
       }
+    });
+
+    // History pagination
+    const historyPrev = document.getElementById('history-prev');
+    const historyNext = document.getElementById('history-next');
+
+    historyPrev?.addEventListener('click', () => {
+      if (historyPage <= 1) return;
+      historyPage -= 1;
+      loadHistory(historySelectedDate);
+    });
+
+    historyNext?.addEventListener('click', () => {
+      const totalPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
+      if (historyPage >= totalPages) return;
+      historyPage += 1;
+      loadHistory(historySelectedDate);
     });
 
     // Close date picker when clicking outside of it
