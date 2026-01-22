@@ -953,9 +953,14 @@
       d.setDate(1);
       return d;
     })();
+    const historyCountsByMonth = new Map();
 
     function pad2(n) {
       return String(n).padStart(2, '0');
+    }
+
+    function monthKeyFromDate(date) {
+      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
     }
 
     function isoFromParts(year, monthIndex, day) {
@@ -965,6 +970,35 @@
     function parseISODate(iso) {
       const [y, m, d] = iso.split('-').map(Number);
       return new Date(y, (m || 1) - 1, d || 1);
+    }
+
+    function getFrequencyClass(count) {
+      if (count > 100) return 'freq-high';
+      if (count >= 26) return 'freq-medium';
+      if (count >= 1) return 'freq-low';
+      return '';
+    }
+
+    async function loadHistoryCountsForMonth(date) {
+      const monthKey = monthKeyFromDate(date);
+      if (historyCountsByMonth.has(monthKey)) return;
+
+      try {
+        const response = await fetch(`api/incidents/history_counts?month=${monthKey}`);
+        if (!response.ok) throw new Error(`History counts request failed: ${response.status}`);
+        const data = await response.json();
+        const counts = data && typeof data === 'object' ? (data.counts || {}) : {};
+        historyCountsByMonth.set(monthKey, counts);
+      } catch (error) {
+        console.error('Failed to fetch history counts:', error);
+        historyCountsByMonth.set(monthKey, {});
+      }
+    }
+
+    function getHistoryCount(isoDate) {
+      const monthKey = isoDate.slice(0, 7);
+      const monthCounts = historyCountsByMonth.get(monthKey);
+      return Number(monthCounts?.[isoDate] || 0);
     }
 
     function setHistoryDate(iso, { load = true } = {}) {
@@ -992,6 +1026,14 @@
       const month = historyViewMonth.getMonth();
       const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
       const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const monthKey = monthKeyFromDate(historyViewMonth);
+      const monthCounts = historyCountsByMonth.get(monthKey);
+
+      if (!monthCounts) {
+        loadHistoryCountsForMonth(historyViewMonth).then(() => {
+          if (datePickerEl.classList.contains('open')) renderDatePicker();
+        });
+      }
 
       const monthLabel = historyViewMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
       const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1015,12 +1057,16 @@
         const iso = isoFromParts(year, month, day);
         const isSelected = iso === historySelectedDate;
         const isToday = iso === isoToday;
+        const count = monthCounts ? getHistoryCount(iso) : 0;
+        const freqClass = getFrequencyClass(count);
         const cls = [
           'dp-day',
+          freqClass,
           isSelected ? 'selected' : '',
           isToday ? 'today' : ''
         ].filter(Boolean).join(' ');
-        html += `<button type="button" class="${cls}" data-date="${iso}">${day}</button>`;
+        const label = count > 0 ? `${count} incident${count === 1 ? '' : 's'}` : 'No incidents';
+        html += `<button type="button" class="${cls}" data-date="${iso}" title="${label}">${day}</button>`;
       }
 
       // Trailing empties to fill last row (up to 42 day cells + 7 dows)

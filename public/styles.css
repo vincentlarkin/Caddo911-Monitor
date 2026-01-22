@@ -941,9 +941,27 @@
       background: transparent;
     }
 
-    .dp-day.today:not(.selected) {
+    .dp-day.freq-low {
+      background: rgba(59, 139, 255, 0.18);
+      border-color: rgba(59, 139, 255, 0.45);
+      color: var(--text);
+    }
+
+    .dp-day.freq-medium {
+      background: rgba(255, 184, 48, 0.18);
       border-color: rgba(255, 184, 48, 0.55);
-      box-shadow: 0 0 0 1px rgba(255, 184, 48, 0.12) inset;
+      color: var(--text);
+    }
+
+    .dp-day.freq-high {
+      background: rgba(255, 59, 59, 0.2);
+      border-color: rgba(255, 59, 59, 0.6);
+      color: var(--text);
+    }
+
+    .dp-day.today:not(.selected) {
+      border-color: rgba(0, 255, 136, 0.7);
+      box-shadow: 0 0 0 1px rgba(0, 255, 136, 0.18) inset, 0 0 14px rgba(0, 255, 136, 0.18);
     }
 
     .dp-day.selected {
@@ -952,6 +970,11 @@
       box-shadow: 0 0 22px rgba(255, 59, 59, 0.14);
       color: var(--text);
       font-weight: 700;
+    }
+
+    .dp-day.today.selected {
+      border-color: rgba(0, 255, 136, 0.8);
+      box-shadow: 0 0 0 1px rgba(0, 255, 136, 0.25) inset, 0 0 18px rgba(0, 255, 136, 0.2);
     }
     
     .empty-state {

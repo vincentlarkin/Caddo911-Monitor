@@ -701,6 +701,30 @@ def get_history():
     conn.close()
     return jsonify({'incidents': incidents, 'total': total})
 
+@app.route('/api/incidents/history_counts')
+def get_history_counts():
+    month = request.args.get('month')  # YYYY-MM format
+
+    if not month or len(month) != 7:
+        return jsonify({'error': 'month is required (YYYY-MM)'}), 400
+
+    conn = db_connect(row_factory=True)
+    cursor = conn.cursor()
+    cursor.execute(
+        '''
+        SELECT DATE(first_seen) as day, COUNT(*) as count
+        FROM incidents
+        WHERE is_active = 0 AND strftime('%Y-%m', first_seen) = ?
+        GROUP BY day
+        ''',
+        (month,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    counts = {row['day']: row['count'] for row in rows}
+    return jsonify({'counts': counts})
+
 @app.route('/api/stats')
 def get_stats():
     conn = db_connect(row_factory=True)
