@@ -160,6 +160,18 @@
           <span>Incident total:</span>
           <strong id="history-count-value">0</strong>
         </div>
+        <div class="sort-control" id="sort-control">
+          <button type="button" class="sort-btn" id="sort-toggle" aria-expanded="false" aria-controls="sort-menu" title="Sort incidents">
+            <span>Sort</span>
+            <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M3 5h18v2H3V5zm4 6h10v2H7v-2zm4 6h2v2h-2v-2z"/>
+            </svg>
+          </button>
+          <div class="sort-menu" id="sort-menu" aria-hidden="true">
+            <button type="button" class="sort-option active" data-sort="recent">Most recent</button>
+            <button type="button" class="sort-option" data-sort="urgency">Urgency</button>
+          </div>
+        </div>
       </div>
       
       <div id="live-panel">
@@ -375,6 +387,7 @@
     let currentIncidents = [];
     let currentHistoryIncidents = [];
     let currentFilter = 'all';
+    let currentSort = 'recent'; // 'recent' | 'urgency'
     let mapMode = 'live'; // 'live' | 'history'
     
     // Agency color mapping
@@ -520,6 +533,36 @@
 
     function getFilteredIncidents(incidents, filter) {
       return incidents.filter(inc => matchesFilter(inc, filter));
+    }
+
+    function _incidentTimeValue(incident) {
+      const raw = incident?.time;
+      if (raw != null && String(raw).trim() !== '') {
+        const normalized = Number(String(raw).padStart(4, '0'));
+        if (!Number.isNaN(normalized)) return normalized;
+      }
+      if (incident?.first_seen) {
+        const parsed = Date.parse(incident.first_seen);
+        return Number.isNaN(parsed) ? 0 : parsed;
+      }
+      return 0;
+    }
+
+    function _urgencyRank(incident) {
+      const sev = getSeverity(incident);
+      return sev === 'high' ? 3 : sev === 'medium' ? 2 : 1;
+    }
+
+    function sortIncidents(incidents) {
+      const list = Array.isArray(incidents) ? [...incidents] : [];
+      if (currentSort === 'urgency') {
+        return list.sort((a, b) => {
+          const rankDiff = _urgencyRank(b) - _urgencyRank(a);
+          if (rankDiff !== 0) return rankDiff;
+          return _incidentTimeValue(b) - _incidentTimeValue(a);
+        });
+      }
+      return list.sort((a, b) => _incidentTimeValue(b) - _incidentTimeValue(a));
     }
 
     // Hide fire-related filters when there are zero matching incidents.
@@ -786,7 +829,8 @@
     // Render the incident list
     function renderIncidentList(incidents) {
       const listEl = document.getElementById('incident-list');
-      if (incidents.length === 0) {
+      const sorted = sortIncidents(incidents);
+      if (sorted.length === 0) {
         const label = currentFilter === 'all' ? 'active' : filterLabel(currentFilter);
         listEl.innerHTML = `
           <div class="empty-state">
@@ -796,7 +840,7 @@
           </div>
         `;
       } else {
-        listEl.innerHTML = incidents.map(inc => createIncidentCard(inc, false)).join('');
+        listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
       }
     }
     
@@ -912,6 +956,7 @@
       const dateLabel = date
         ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
         : 'selected date';
+      const sorted = sortIncidents(incidents);
 
       if (total === 0) {
         listEl.innerHTML = `
@@ -925,7 +970,7 @@
         return;
       }
 
-      if (incidents.length === 0) {
+      if (sorted.length === 0) {
         const filterLabelStr = currentFilter === 'all' ? 'incidents' : `${filterLabel(currentFilter)} incidents`;
         listEl.innerHTML = `
           <div class="empty-state">
@@ -938,7 +983,7 @@
         return;
       }
 
-      listEl.innerHTML = incidents.map(inc => createIncidentCard(inc, false)).join('');
+      listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
     }
 
     // Inline History date picker (no browser-native date input)
@@ -1144,6 +1189,52 @@
       btn.addEventListener('click', () => {
         applyFilter(btn.dataset.filter);
       });
+    });
+
+    // Sort control
+    const sortToggle = document.getElementById('sort-toggle');
+    const sortMenu = document.getElementById('sort-menu');
+
+    function setSort(mode) {
+      currentSort = mode === 'urgency' ? 'urgency' : 'recent';
+      sortMenu?.querySelectorAll('.sort-option').forEach(option => {
+        option.classList.toggle('active', option.dataset.sort === currentSort);
+      });
+
+      const livePanel = document.getElementById('live-panel');
+      const historyPanel = document.getElementById('history-panel');
+      const liveVisible = livePanel && !livePanel.classList.contains('hidden');
+      const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
+
+      if (historyVisible) {
+        const historyFiltered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
+        renderHistoryList(historyFiltered, historySelectedDate, { total: currentHistoryIncidents.length });
+      } else if (liveVisible) {
+        const filtered = getFilteredIncidents(currentIncidents, currentFilter);
+        renderIncidentList(filtered);
+      }
+    }
+
+    function toggleSortMenu(forceOpen) {
+      if (!sortMenu || !sortToggle) return;
+      const next = typeof forceOpen === 'boolean' ? forceOpen : !sortMenu.classList.contains('open');
+      sortMenu.classList.toggle('open', next);
+      sortMenu.setAttribute('aria-hidden', String(!next));
+      sortToggle.setAttribute('aria-expanded', String(next));
+    }
+
+    sortToggle?.addEventListener('click', () => toggleSortMenu());
+    sortMenu?.addEventListener('click', (e) => {
+      const mode = e.target.closest('button[data-sort]')?.dataset.sort;
+      if (!mode) return;
+      setSort(mode);
+      toggleSortMenu(false);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!sortMenu?.classList.contains('open')) return;
+      if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
+      toggleSortMenu(false);
     });
     
     // Initialize History date UI (default to today)

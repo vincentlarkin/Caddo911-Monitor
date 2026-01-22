@@ -600,6 +600,95 @@
     .filter-btn.empty:hover {
       opacity: 0.8;
     }
+
+    .sort-control {
+      position: relative;
+      margin-left: auto;
+    }
+
+    .sort-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .sort-btn:hover {
+      background: var(--bg-panel);
+      color: var(--text);
+      border-color: var(--text-dim);
+      transform: translateY(-1px);
+    }
+
+    .sort-btn[aria-expanded="true"] {
+      border-color: rgba(59, 139, 255, 0.55);
+      box-shadow: 0 0 18px rgba(59, 139, 255, 0.12);
+      color: var(--text);
+    }
+
+    .sort-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--blue);
+      opacity: 0.9;
+    }
+
+    .sort-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      min-width: 160px;
+      background: rgba(18, 18, 26, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      border-radius: 12px;
+      padding: 6px;
+      display: none;
+      z-index: 20;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+      backdrop-filter: blur(8px);
+    }
+
+    .sort-menu.open {
+      display: grid;
+      gap: 6px;
+      animation: slideIn 0.15s ease-out;
+    }
+
+    .sort-option {
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-dim);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .sort-option:hover {
+      background: rgba(59, 139, 255, 0.12);
+      border-color: rgba(59, 139, 255, 0.35);
+      color: var(--text);
+    }
+
+    .sort-option.active {
+      background: rgba(59, 139, 255, 0.18);
+      border-color: rgba(59, 139, 255, 0.55);
+      color: var(--text);
+      font-weight: 600;
+    }
     
     /* Info Button */
     .info-btn {
