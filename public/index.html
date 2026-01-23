@@ -475,6 +475,7 @@
 
       // Explicit low-priority / administrative / follow-up type calls
       const LOW = [
+        'deliver message', 'prisoner medical security', 'periodic check', 'taken by other agency',
         'follow up', 'followup', 'follow', 'investigation', 'report', 'information',
         'citizen assist', 'citizen assistance', 'assist citizen', 'civil',
         'welfare check', 'wellness check', 'property check', 'extra patrol', 'directed patrol',
@@ -490,6 +491,8 @@
         'assault', 'battery', 'domestic', 'fight',
         'robbery', 'home invasion', 'kidnap', 'hostage',
         'homicide', 'murder', 'rape', 'sexual',
+        // Theft (per user request)
+        'theft',
         // Fire
         'structure fire', 'house fire', 'apartment fire', 'building fire',
         'fire', 'smoke', 'explosion',
@@ -503,7 +506,7 @@
       // Medium-severity incidents (default bucket if not high/low)
       const MEDIUM = [
         // Theft / property crime
-        'stolen', 'theft', 'burglary', 'break in', 'breaking entering', 'shoplift', 'vandal',
+        'stolen', 'burglary', 'break in', 'breaking entering', 'shoplift', 'vandal',
         // Traffic / hazard
         'accident', 'crash', 'wreck', 'collision', 'mvc', 'mva',
         'road hazard', 'debris', 'disabled vehicle',
