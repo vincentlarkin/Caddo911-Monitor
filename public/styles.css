@@ -486,39 +486,6 @@
       color: var(--text-dim);
     }
     
-    .stats-panel {
-      padding: 15px;
-      border-top: 1px solid var(--border);
-      background: rgba(0,0,0,0.2);
-      flex-shrink: 0;
-    }
-    
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-    }
-    
-    .stat-box {
-      text-align: center;
-      padding: 10px;
-      background: var(--bg-card);
-      border-radius: 8px;
-    }
-    
-    .stat-number {
-      font-size: 24px;
-      font-weight: 700;
-      color: var(--amber);
-    }
-    
-    .stat-label {
-      font-size: 9px;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    
     .filter-bar {
       display: flex;
       gap: 6px;
@@ -531,17 +498,45 @@
     
     .history-count {
       margin-left: auto;
-      padding: 6px 10px;
+      padding: 6px 12px;
       border-radius: 999px;
-      border: 1px solid rgba(59, 139, 255, 0.35);
-      background: rgba(59, 139, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
       color: var(--text);
       font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
       letter-spacing: 0.5px;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       white-space: nowrap;
+      box-shadow: 0 0 18px rgba(0, 0, 0, 0.22);
+    }
+
+    .history-count-label {
+      font-size: 9px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .history-count strong {
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .history-count.today {
+      border-color: rgba(0, 255, 136, 0.45);
+      background: rgba(0, 255, 136, 0.12);
+      box-shadow: 0 0 18px rgba(0, 255, 136, 0.16);
+    }
+
+    .history-count.today .history-count-label {
+      color: rgba(0, 255, 136, 0.9);
+    }
+
+    .history-count.today strong {
+      color: var(--green);
     }
     
     .history-count.hidden {
@@ -603,6 +598,10 @@
 
     .sort-control {
       position: relative;
+      margin-left: 8px;
+    }
+
+    .history-count.hidden + .sort-control {
       margin-left: auto;
     }
 
