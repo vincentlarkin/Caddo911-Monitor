@@ -611,6 +611,20 @@
     .history-count.today strong {
       color: var(--green);
     }
+
+    .history-count.incidents {
+      border-color: rgba(154, 160, 170, 0.35);
+      background: rgba(154, 160, 170, 0.12);
+      box-shadow: 0 0 16px rgba(154, 160, 170, 0.16);
+    }
+
+    .history-count.incidents .history-count-label {
+      color: rgba(154, 160, 170, 0.9);
+    }
+
+    .history-count.incidents strong {
+      color: var(--gray);
+    }
     
     .history-count.hidden {
       display: none !important;

@@ -1087,6 +1087,7 @@
         countLabel.textContent = isToday ? 'Today' : 'Incidents';
       }
       countWrap.classList.toggle('today', isToday);
+      countWrap.classList.toggle('incidents', !isToday);
       countValue.textContent = total.toString();
       countWrap.classList.remove('hidden');
     }
