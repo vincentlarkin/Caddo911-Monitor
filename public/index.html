@@ -1038,8 +1038,10 @@
           const scraped = status.lastScrapeFinishedAt || status.lastUpdate;
           el.title = scraped ? `Server scrape: ${new Date(scraped).toLocaleString()}` : '';
         }
+        return typeof status.scrapeInterval === 'number' ? status.scrapeInterval : null;
       } catch (error) {
         console.error('Failed to fetch status:', error);
+        return null;
       }
     }
     
@@ -1429,16 +1431,26 @@
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });
     
+    // Polling interval (ms). Keep at least 60s to be gentle.
+    let pollIntervalMs = 60000;
+
     // Initial load
     loadParishOutline();
     updateIncidents();
     updateStatus();
     
-    // Poll for updates every 15 seconds (backend scrapes every 60s)
-    setInterval(() => {
-      updateIncidents();
-      updateStatus();
-    }, 15000);
+    // Poll for updates with dynamic interval from /api/status.
+    // This keeps chatter low and aligned with backend scrape cadence.
+    async function pollLoop() {
+      await updateIncidents();
+      const nextInterval = await updateStatus();
+      if (typeof nextInterval === 'number' && Number.isFinite(nextInterval)) {
+        pollIntervalMs = Math.max(60000, Math.round(nextInterval));
+      }
+      setTimeout(pollLoop, pollIntervalMs);
+    }
+
+    setTimeout(pollLoop, pollIntervalMs);
   </script>
 </body>
 </html>
