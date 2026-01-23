@@ -34,6 +34,9 @@ feed_refreshed_at: str | None = None  # e.g. "January 13 09:56"
 last_scrape_started_at: str | None = None  # ISO UTC
 last_scrape_finished_at: str | None = None  # ISO UTC
 
+# Identify the scraper politely in upstream logs.
+SCRAPER_USER_AGENT = "Friendly - Caddo911.vincentlarkin.com (+https://caddo911.vincentlarkin.com)"
+
 QUIET = False
 
 # Louisiana is in US Central time. Use an IANA name so DST is handled (CST/CDT).
@@ -260,7 +263,7 @@ def _security_headers(resp):
 # Geocoder setup with caching - try ArcGIS first (better US coverage), fallback to Nominatim
 from geopy.geocoders import ArcGIS
 geolocator_arcgis = ArcGIS(timeout=5)
-geolocator_osm = Nominatim(user_agent="caddo911_tracker", timeout=5)
+geolocator_osm = Nominatim(user_agent=SCRAPER_USER_AGENT, timeout=5)
 geocode_cache = {}
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
@@ -455,7 +458,7 @@ def scrape_incidents():
         # Create session to handle cookies (ASP.NET requires this)
         session = requests.Session()
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': SCRAPER_USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
             'Connection': 'keep-alive',

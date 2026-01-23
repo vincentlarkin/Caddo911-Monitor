@@ -50,7 +50,7 @@
       right: 0;
       height: 1px;
       background: linear-gradient(90deg, transparent, var(--red), transparent);
-      animation: pulse-line 2s ease-in-out infinite;
+      animation: pulse-line 1.4s ease-in-out infinite;
     }
     
     @keyframes pulse-line {
@@ -72,7 +72,7 @@
       background: rgba(0,0,0,0.25);
       border: 1px solid rgba(255, 255, 255, 0.10);
       box-shadow: 0 0 30px rgba(255, 59, 59, 0.12);
-      animation: logo-pulse 2s ease-in-out infinite;
+      animation: logo-pulse 1.4s ease-in-out infinite;
       display: block;
     }
     
@@ -132,7 +132,7 @@
     
     .status-value.live {
       color: var(--red);
-      animation: blink 1s ease-in-out infinite;
+      animation: blink 0.7s ease-in-out infinite;
     }
     
     .map-theme-toggle {
@@ -176,7 +176,7 @@
       background: var(--red);
       border-radius: 50%;
       margin-right: 8px;
-      animation: live-pulse 1.5s ease-in-out infinite;
+      animation: live-pulse 1.1s ease-in-out infinite;
     }
     
     @keyframes live-pulse {
@@ -392,7 +392,7 @@
       margin-bottom: 10px;
       border: 1px solid var(--border);
       cursor: pointer;
-      transition: all 0.3s ease;
+      transition: all 0.2s ease;
       position: relative;
       overflow: hidden;
     }
@@ -422,7 +422,7 @@
     }
     
     .incident-card.new {
-      animation: new-incident 0.5s ease-out;
+      animation: new-incident 0.35s ease-out;
     }
     
     @keyframes new-incident {
@@ -659,7 +659,7 @@
     .sort-menu.open {
       display: grid;
       gap: 6px;
-      animation: slideIn 0.15s ease-out;
+      animation: slideIn 0.12s ease-out;
     }
 
     .sort-option {
@@ -741,7 +741,7 @@
       padding: 22px 22px 16px;
       box-shadow: 0 12px 60px rgba(0, 0, 0, 0.55);
       z-index: 1;
-      animation: slideIn 0.2s ease-out;
+      animation: slideIn 0.12s ease-out;
     }
     
     .modal-close {
@@ -998,7 +998,7 @@
 
     .date-picker.open {
       display: block;
-      animation: slideIn 0.15s ease-out;
+      animation: slideIn 0.12s ease-out;
     }
 
     .dp-header {
@@ -1162,7 +1162,7 @@
       inset: -5px;
       border-radius: 50%;
       border: 2px solid currentColor;
-      animation: marker-pulse 1.5s ease-out infinite;
+      animation: marker-pulse 1.1s ease-out infinite;
     }
     
     @keyframes marker-pulse {
