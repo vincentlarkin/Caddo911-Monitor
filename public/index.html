@@ -123,6 +123,10 @@
               <div class="legend-dot" style="background: var(--blue)"></div>
               <span>Low severity</span>
             </div>
+            <div class="legend-item">
+              <div class="legend-dot" style="background: var(--gray)"></div>
+              <span>Custody / prisoner</span>
+            </div>
             <div style="margin-top: 10px; font-size: 10px; color: var(--text-dim); line-height: 1.4;">
               Colors = severity. Use the sidebar filters to limit by agency.
             </div>
@@ -139,37 +143,41 @@
 
       <!-- Shared filters (apply to Live + History lists) -->
       <div class="filter-bar">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="cadfd">
-          <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
-          <span>CAD-FD/EMS</span>
-        </button>
-        <button class="filter-btn" data-filter="shvfd">
-          <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
-          <span>SHVFD</span>
-        </button>
-        <button class="filter-btn" data-filter="police">
-          <img src="images/spd-police.png" alt="Police" class="filter-logo">
-          <span>Police</span>
-        </button>
-        <button class="filter-btn" data-filter="sheriff">
-          <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
-          <span>Sheriff</span>
-        </button>
-        <div class="history-count hidden" id="history-count">
-          <span class="history-count-label" id="history-count-label">Incidents</span>
-          <strong id="history-count-value">0</strong>
-        </div>
-        <div class="sort-control" id="sort-control">
-          <button type="button" class="sort-btn" id="sort-toggle" aria-expanded="false" aria-controls="sort-menu" title="Sort incidents">
-            <span>Sort</span>
-            <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M3 5h18v2H3V5zm4 6h10v2H7v-2zm4 6h2v2h-2v-2z"/>
-            </svg>
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="cadfd">
+            <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
+            <span>CAD-FD/EMS</span>
           </button>
-          <div class="sort-menu" id="sort-menu" aria-hidden="true">
-            <button type="button" class="sort-option active" data-sort="recent">Most recent</button>
-            <button type="button" class="sort-option" data-sort="urgency">Urgency</button>
+          <button class="filter-btn" data-filter="shvfd">
+            <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
+            <span>SHVFD</span>
+          </button>
+          <button class="filter-btn" data-filter="police">
+            <img src="images/spd-police.png" alt="Police" class="filter-logo">
+            <span>Police</span>
+          </button>
+          <button class="filter-btn" data-filter="sheriff">
+            <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
+            <span>Sheriff</span>
+          </button>
+        </div>
+        <div class="filter-meta">
+          <div class="history-count hidden" id="history-count">
+            <span class="history-count-label" id="history-count-label">Incidents</span>
+            <strong id="history-count-value">0</strong>
+          </div>
+          <div class="sort-control" id="sort-control">
+            <button type="button" class="sort-btn" id="sort-toggle" aria-expanded="false" aria-controls="sort-menu" title="Sort incidents">
+              <span>Sort</span>
+              <svg class="sort-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M3 5h18v2H3V5zm4 6h10v2H7v-2zm4 6h2v2h-2v-2z"/>
+              </svg>
+            </button>
+            <div class="sort-menu" id="sort-menu" aria-hidden="true">
+              <button type="button" class="sort-option active" data-sort="recent">Most recent</button>
+              <button type="button" class="sort-option" data-sort="urgency">Urgency</button>
+            </div>
           </div>
         </div>
       </div>
@@ -457,6 +465,15 @@
       const d = _normalizeDesc(incident?.description);
       const agency = String(incident?.agency || '').toUpperCase();
 
+      const CUSTODY = [
+        'prisoner',
+      ];
+
+      const MEDICAL_EMERGENCY = [
+        'medical emergency',
+        'caddo ems event',
+      ];
+
       // Explicit low-priority / administrative / follow-up type calls
       const LOW = [
         'deliver message', 'prisoner medical security', 'periodic check', 'taken by other agency',
@@ -475,8 +492,8 @@
         'assault', 'battery', 'domestic', 'fight',
         'robbery', 'home invasion', 'kidnap', 'hostage',
         'homicide', 'murder', 'rape', 'sexual',
-        // Theft (per user request)
-        'theft',
+        // Crime (treat as high priority)
+        'theft', 'burglary', 'vehicle burglary', 'break in', 'breaking entering',
         // Fire
         'structure fire', 'house fire', 'apartment fire', 'building fire',
         'fire', 'smoke', 'explosion',
@@ -490,7 +507,7 @@
       // Medium-severity incidents (default bucket if not high/low)
       const MEDIUM = [
         // Theft / property crime
-        'stolen', 'burglary', 'break in', 'breaking entering', 'shoplift', 'vandal',
+        'stolen', 'shoplift', 'vandal',
         // Traffic / hazard
         'accident', 'crash', 'wreck', 'collision', 'mvc', 'mva',
         'road hazard', 'debris', 'disabled vehicle',
@@ -505,6 +522,9 @@
         return 'low';
       }
 
+      if (_includesAny(d, CUSTODY)) return 'custody';
+      if (agency === 'EMS' || agency.includes('EMS')) return 'medical';
+      if (_includesAny(d, MEDICAL_EMERGENCY)) return 'medical';
       if (_includesAny(d, HIGH)) return 'high';
       if (_includesAny(d, LOW)) return 'low';
       if (_includesAny(d, MEDIUM)) return 'medium';
@@ -518,13 +538,73 @@
     }
 
     function getSeverityClass(sev) {
+      if (sev === 'medical') return 'sev-medical';
+      if (sev === 'custody') return 'sev-custody';
       return sev === 'high' ? 'sev-high' : sev === 'low' ? 'sev-low' : 'sev-medium';
     }
 
     function getSeverityColor(sev) {
-      if (sev === 'high') return '#ff3b3b';
+      if (sev === 'high' || sev === 'medical') return '#ff3b3b';
+      if (sev === 'custody') return '#9aa0aa';
       if (sev === 'low') return '#3b8bff';
       return '#ffb830';
+    }
+
+    const MARKER_PATTERN_IDS = {
+      medical: 'marker-pattern-medical',
+      custody: 'marker-pattern-custody',
+    };
+
+    function ensureMarkerPatterns() {
+      const overlay = map.getPanes().overlayPane;
+      const svg = overlay ? overlay.querySelector('svg') : null;
+      if (!svg) return;
+
+      let defs = svg.querySelector('defs');
+      if (!defs) {
+        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        svg.insertBefore(defs, svg.firstChild);
+      }
+
+      const ns = 'http://www.w3.org/2000/svg';
+      const ensurePattern = (id, { primary, secondary }) => {
+        if (defs.querySelector(`#${id}`)) return;
+        const pattern = document.createElementNS(ns, 'pattern');
+        pattern.setAttribute('id', id);
+        pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+        pattern.setAttribute('width', '12');
+        pattern.setAttribute('height', '12');
+        pattern.setAttribute('patternTransform', 'rotate(135)');
+
+        const bg = document.createElementNS(ns, 'rect');
+        bg.setAttribute('width', '12');
+        bg.setAttribute('height', '12');
+        bg.setAttribute('fill', secondary);
+        pattern.appendChild(bg);
+
+        const stripe = document.createElementNS(ns, 'rect');
+        stripe.setAttribute('width', '6');
+        stripe.setAttribute('height', '12');
+        stripe.setAttribute('fill', primary);
+        pattern.appendChild(stripe);
+
+        defs.appendChild(pattern);
+      };
+
+      ensurePattern(MARKER_PATTERN_IDS.medical, {
+        primary: 'rgba(255, 59, 59, 0.45)',
+        secondary: 'rgba(255, 255, 255, 0.18)',
+      });
+      ensurePattern(MARKER_PATTERN_IDS.custody, {
+        primary: 'rgba(154, 160, 170, 0.55)',
+        secondary: 'rgba(255, 255, 255, 0.16)',
+      });
+    }
+
+    function getMarkerFill(sev) {
+      if (sev === 'medical') return `url(#${MARKER_PATTERN_IDS.medical})`;
+      if (sev === 'custody') return `url(#${MARKER_PATTERN_IDS.custody})`;
+      return getSeverityColor(sev);
     }
     
     // Filter logic - matches agency codes to filter categories
@@ -580,7 +660,7 @@
 
     function _urgencyRank(incident) {
       const sev = getSeverity(incident);
-      return sev === 'high' ? 3 : sev === 'medium' ? 2 : 1;
+      return sev === 'high' ? 3 : sev === 'medical' ? 2.5 : sev === 'medium' ? 2 : sev === 'low' ? 1 : 0.5;
     }
 
     function sortIncidents(incidents) {
@@ -601,11 +681,15 @@
       const counts = {
         cadfd: 0,
         shvfd: 0,
+        police: 0,
+        sheriff: 0,
       };
 
       for (const inc of baseIncidents || []) {
         if (matchesFilter(inc, 'cadfd')) counts.cadfd += 1;
         if (matchesFilter(inc, 'shvfd')) counts.shvfd += 1;
+        if (matchesFilter(inc, 'police')) counts.police += 1;
+        if (matchesFilter(inc, 'sheriff')) counts.sheriff += 1;
       }
 
       // Always show filter "tabs" even when they have 0 incidents.
@@ -613,12 +697,20 @@
       // (the list will show a "No incidents" message).
       document.querySelectorAll('.filter-btn').forEach(btn => {
         const f = btn.dataset.filter;
-        if (f === 'cadfd' || f === 'shvfd') {
-          btn.classList.toggle('empty', (counts[f] || 0) === 0);
-        } else {
+        if (f === 'all') {
+          btn.dataset.count = '';
           btn.classList.remove('empty');
+          return;
         }
+        const count = counts[f] || 0;
+        btn.dataset.count = String(count);
+        btn.classList.toggle('empty', count === 0);
       });
+
+      // If the active filter has no incidents, fall back to "all".
+      if (currentFilter !== 'all' && (counts[currentFilter] || 0) === 0) {
+        currentFilter = 'all';
+      }
 
       // Keep active state consistent (especially after fallback)
       document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -696,6 +788,7 @@
     function createMarker(incident, { mode = 'live' } = {}) {
       const sev = getSeverity(incident);
       const color = getSeverityColor(sev);
+      const fillColor = getMarkerFill(sev);
       
       const locationParts = [];
       if (incident.street) locationParts.push(incident.street);
@@ -707,12 +800,13 @@
       const points = _triangleLatLngs(incident.latitude, incident.longitude, sizeMeters, seed);
       const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
       
+      const hasPattern = sev === 'medical' || sev === 'custody';
       const marker = L.polygon(points, {
         color,
         weight: mode === 'history' ? 1 : 1.2,
         opacity: 0.9,
-        fillColor: color,
-        fillOpacity: mode === 'history' ? 0.18 : 0.28,
+        fillColor,
+        fillOpacity: hasPattern ? (mode === 'history' ? 0.5 : 0.65) : (mode === 'history' ? 0.18 : 0.28),
       })
         // Right-click → open in Google Maps (useful on desktop)
         .on('contextmenu', () => {
@@ -729,6 +823,9 @@
           </div>
         `);
       
+      if (hasPattern) {
+        marker.on('add', ensureMarkerPatterns);
+      }
       return marker;
     }
 
@@ -876,6 +973,11 @@
     
     // Apply filter and update display
     function applyFilter(filter) {
+      const btn = document.querySelector(`.filter-btn[data-filter="${filter}"]`);
+      const isEmpty = filter !== 'all' && btn?.classList.contains('empty');
+      if (isEmpty) {
+        return;
+      }
       currentFilter = filter;
       
       // Update filter button states
