@@ -28,6 +28,69 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 # Database setup
 DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
 
+# Archive settings: incidents older than this many days get moved to monthly archive DBs
+ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))
+
+def _get_archive_dir() -> str:
+    """Get the directory where archive DBs are stored (same dir as main DB)."""
+    return os.path.dirname(os.path.abspath(DB_PATH)) or '.'
+
+def _get_archive_db_path(year: int, month: int) -> str:
+    """Get path for a monthly archive database."""
+    archive_dir = _get_archive_dir()
+    return os.path.join(archive_dir, f"caddo911_archive_{year:04d}_{month:02d}.db")
+
+def _list_archive_dbs() -> list[str]:
+    """List all archive database files."""
+    archive_dir = _get_archive_dir()
+    if not os.path.isdir(archive_dir):
+        return []
+    return sorted([
+        os.path.join(archive_dir, f) 
+        for f in os.listdir(archive_dir) 
+        if f.startswith('caddo911_archive_') and f.endswith('.db')
+    ])
+
+def _archive_db_connect(path: str, *, row_factory: bool = False) -> sqlite3.Connection:
+    """Connect to an archive database."""
+    conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
+    if row_factory:
+        conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000;")
+    return conn
+
+def _init_archive_db(path: str) -> None:
+    """Initialize an archive database with the same schema as main DB."""
+    conn = _archive_db_connect(path)
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode = WAL;")
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hash TEXT UNIQUE,
+            agency TEXT,
+            time TEXT,
+            units INTEGER,
+            description TEXT,
+            street TEXT,
+            cross_streets TEXT,
+            municipality TEXT,
+            latitude REAL,
+            longitude REAL,
+            first_seen DATETIME,
+            last_seen DATETIME,
+            is_active INTEGER DEFAULT 0,
+            geocode_source TEXT,
+            geocode_quality TEXT,
+            geocode_query TEXT,
+            geocoded_at DATETIME
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
+    conn.commit()
+    conn.close()
+
 # Scraper/status metadata
 SCRAPE_INTERVAL_SECONDS_DEFAULT = 60
 feed_refreshed_at: str | None = None  # e.g. "January 13 09:56"
@@ -138,6 +201,141 @@ def meta_get_many(keys: list[str]) -> dict[str, str]:
     rows = cursor.fetchall()
     conn.close()
     return {row["key"]: row["value"] for row in rows} if rows else {}
+
+def archive_old_incidents(*, dry_run: bool = False) -> dict:
+    """
+    Move incidents older than ARCHIVE_AFTER_DAYS to monthly archive databases.
+    Returns stats about what was archived.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=ARCHIVE_AFTER_DAYS)
+    cutoff_iso = cutoff.isoformat()
+    
+    conn = db_connect(row_factory=True)
+    cursor = conn.cursor()
+    
+    # Find inactive incidents older than cutoff
+    cursor.execute('''
+        SELECT * FROM incidents 
+        WHERE is_active = 0 AND first_seen < ?
+        ORDER BY first_seen ASC
+    ''', (cutoff_iso,))
+    rows = cursor.fetchall()
+    
+    if not rows:
+        conn.close()
+        log(f"[ARCHIVE] No incidents older than {ARCHIVE_AFTER_DAYS} days to archive")
+        return {'archived': 0, 'files': []}
+    
+    log(f"[ARCHIVE] Found {len(rows)} incidents to archive{' (dry run)' if dry_run else ''}")
+    
+    # Group by year-month based on first_seen (in Central time)
+    by_month: dict[tuple[int, int], list[dict]] = {}
+    for row in rows:
+        row_dict = dict(row)
+        first_seen = row_dict.get('first_seen')
+        if not first_seen:
+            continue
+        dt = _parse_iso_datetime(first_seen)
+        if not dt:
+            continue
+        # Convert to Central time for archiving by local month
+        central_dt = dt.astimezone(CENTRAL_TZ)
+        key = (central_dt.year, central_dt.month)
+        if key not in by_month:
+            by_month[key] = []
+        by_month[key].append(row_dict)
+    
+    archived_count = 0
+    archived_files = []
+    hashes_to_delete = []
+    
+    for (year, month), incidents in sorted(by_month.items()):
+        archive_path = _get_archive_db_path(year, month)
+        log(f"[ARCHIVE] {year}-{month:02d}: {len(incidents)} incidents -> {os.path.basename(archive_path)}")
+        
+        if not dry_run:
+            _init_archive_db(archive_path)
+            archive_conn = _archive_db_connect(archive_path)
+            archive_cursor = archive_conn.cursor()
+            
+            for inc in incidents:
+                # Insert into archive (use INSERT OR IGNORE to handle duplicates)
+                try:
+                    archive_cursor.execute('''
+                        INSERT OR IGNORE INTO incidents 
+                        (hash, agency, time, units, description, street, cross_streets, municipality,
+                         latitude, longitude, first_seen, last_seen, is_active,
+                         geocode_source, geocode_quality, geocode_query, geocoded_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        inc.get('hash'),
+                        inc.get('agency'),
+                        inc.get('time'),
+                        inc.get('units'),
+                        inc.get('description'),
+                        inc.get('street'),
+                        inc.get('cross_streets'),
+                        inc.get('municipality'),
+                        inc.get('latitude'),
+                        inc.get('longitude'),
+                        inc.get('first_seen'),
+                        inc.get('last_seen'),
+                        inc.get('is_active', 0),
+                        inc.get('geocode_source'),
+                        inc.get('geocode_quality'),
+                        inc.get('geocode_query'),
+                        inc.get('geocoded_at'),
+                    ))
+                    hashes_to_delete.append(inc.get('hash'))
+                    archived_count += 1
+                except Exception as e:
+                    log(f"[ARCHIVE] Error archiving incident {inc.get('hash')}: {e}")
+            
+            archive_conn.commit()
+            archive_conn.close()
+        else:
+            archived_count += len(incidents)
+        
+        if archive_path not in archived_files:
+            archived_files.append(archive_path)
+    
+    # Delete archived incidents from main DB
+    if not dry_run and hashes_to_delete:
+        log(f"[ARCHIVE] Removing {len(hashes_to_delete)} archived incidents from main DB...")
+        for h in hashes_to_delete:
+            cursor.execute('DELETE FROM incidents WHERE hash = ?', (h,))
+        conn.commit()
+        
+        # Vacuum to reclaim space
+        log("[ARCHIVE] Running VACUUM to reclaim space...")
+        conn.execute("VACUUM")
+    
+    conn.close()
+    
+    log(f"[ARCHIVE] Complete! Archived {archived_count} incidents to {len(archived_files)} file(s)")
+    return {'archived': archived_count, 'files': archived_files}
+
+def _get_archive_dbs_for_date(date_str: str) -> list[str]:
+    """Get archive DB paths that might contain data for a given date (YYYY-MM-DD)."""
+    try:
+        year, month, _ = date_str.split('-')
+        archive_path = _get_archive_db_path(int(year), int(month))
+        if os.path.exists(archive_path):
+            return [archive_path]
+    except Exception:
+        pass
+    return []
+
+def _get_archive_dbs_for_month(month_str: str) -> list[str]:
+    """Get archive DB paths for a given month (YYYY-MM)."""
+    try:
+        year, month = month_str.split('-')
+        archive_path = _get_archive_db_path(int(year), int(month))
+        if os.path.exists(archive_path):
+            return [archive_path]
+    except Exception:
+        pass
+    return []
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -266,6 +464,23 @@ geolocator_arcgis = ArcGIS(timeout=5)
 geolocator_osm = Nominatim(user_agent=SCRAPER_USER_AGENT, timeout=5)
 geocode_cache = {}
 
+# Caddo Parish bounding box - exclude Bossier Parish (east of Red River ~-93.65)
+# Caddo Parish is roughly: lat 32.15-32.85, lon -94.04 to -93.56
+# But to avoid Bossier false positives, we use a tighter western bound
+CADDO_LAT_MIN = 32.10
+CADDO_LAT_MAX = 32.90
+CADDO_LON_MIN = -94.10  # western edge of Caddo Parish
+CADDO_LON_MAX = -93.62  # just west of Red River (excludes most of Bossier)
+
+# Shreveport city center (for distance-based fallback ranking)
+SHREVEPORT_CENTER_LAT = 32.5252
+SHREVEPORT_CENTER_LON = -93.7502
+
+def _is_in_caddo_bounds(lat: float, lon: float) -> bool:
+    """Check if coordinates are within Caddo Parish (west of Red River)."""
+    return (CADDO_LAT_MIN < lat < CADDO_LAT_MAX and 
+            CADDO_LON_MIN < lon < CADDO_LON_MAX)
+
 def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -344,11 +559,15 @@ def geocode_address(street, cross_streets, municipality):
     Convert address to lat/lng coordinates.
     Uses up to TWO cross streets (when available) and handles '@' formatting in the street field.
     Tries ArcGIS first (better US coverage), then Nominatim.
+    
+    Key: We add "Caddo Parish" to queries to avoid false positives in neighboring Bossier Parish,
+    since many street names exist in both parishes.
     """
     import random
     
     city = _clean_ws(municipality or "") or 'Shreveport'
     state = 'LA'
+    county = 'Caddo Parish'  # Critical: helps geocoders pick the right side of the Red River
 
     street_clean, crosses = _extract_street_and_crosses(street, cross_streets)
     cross1 = crosses[0] if len(crosses) > 0 else None
@@ -364,19 +583,30 @@ def geocode_address(street, cross_streets, municipality):
     # - cross1 & cross2 (best when there is no main street, or when street field contains multiple streets)
     # - street & cross1 / street & cross2
     # - street only / cross only
+    # 
+    # We generate TWO variants for each: one with county, one without (in case county confuses the geocoder)
     candidates: list[tuple[str, str]] = []
+    
     if cross1 and cross2:
+        # With county (preferred - helps avoid Bossier matches)
+        candidates.append((f"{cross1} & {cross2}, {city}, {county}, {state}", "intersection-2"))
+        candidates.append((f"{cross1} and {cross2}, {city}, {county}, {state}", "intersection-2"))
+        # Without county (fallback)
         candidates.append((f"{cross1} & {cross2}, {city}, {state}", "intersection-2"))
-        candidates.append((f"{cross1} and {cross2}, {city}, {state}", "intersection-2"))
     if street_clean and cross1:
+        candidates.append((f"{street_clean} & {cross1}, {city}, {county}, {state}", "street+cross"))
+        candidates.append((f"{street_clean} and {cross1}, {city}, {county}, {state}", "street+cross"))
         candidates.append((f"{street_clean} & {cross1}, {city}, {state}", "street+cross"))
-        candidates.append((f"{street_clean} and {cross1}, {city}, {state}", "street+cross"))
     if street_clean and cross2:
+        candidates.append((f"{street_clean} & {cross2}, {city}, {county}, {state}", "street+cross"))
         candidates.append((f"{street_clean} & {cross2}, {city}, {state}", "street+cross"))
     if street_clean:
+        candidates.append((f"{street_clean}, {city}, {county}, {state}", "street-only"))
         candidates.append((f"{street_clean}, {city}, {state}", "street-only"))
     if cross1:
+        candidates.append((f"{cross1}, {city}, {county}, {state}", "cross-only"))
         candidates.append((f"{cross1}, {city}, {state}", "cross-only"))
+    candidates.append((f"{city}, {county}, {state}", "city-only"))
     candidates.append((f"{city}, {state}", "city-only"))
 
     # De-dupe queries while preserving quality tag for each query string
@@ -389,47 +619,80 @@ def geocode_address(street, cross_streets, municipality):
         seen_q.add(qn.lower())
         deduped.append((qn, quality))
     
-    # Try ArcGIS first (better for US addresses)
-    for attempt_query, quality in deduped[:4]:
+    # Collect valid results from both providers, then pick the best one
+    # (prefer results clearly in Caddo Parish, close to Shreveport center)
+    valid_results: list[dict] = []
+    
+    # Try ArcGIS first (better for US addresses) - collect ALL valid results, don't return early
+    for attempt_query, quality in deduped[:8]:
         try:
             time.sleep(0.1)
             location = geolocator_arcgis.geocode(attempt_query, timeout=4)
-            if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
-                result = {
+            if location and _is_in_caddo_bounds(location.latitude, location.longitude):
+                valid_results.append({
                     'lat': location.latitude,
                     'lng': location.longitude,
                     'source': 'arcgis',
                     'quality': quality,
                     'query': attempt_query,
-                }
-                geocode_cache[cache_key] = result
-                log(f"  [ARC] {quality} | {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
-                return result
+                })
         except Exception:
             pass
     
-    # Fallback to Nominatim/OSM
-    for attempt_query, quality in deduped[:4]:
+    # Also try Nominatim/OSM for more options
+    for attempt_query, quality in deduped[:8]:
         try:
             time.sleep(0.1)
             location = geolocator_osm.geocode(attempt_query, country_codes='us', exactly_one=True, timeout=3)
-            if location and 32.0 < location.latitude < 33.2 and -94.2 < location.longitude < -93.3:
-                result = {
+            if location and _is_in_caddo_bounds(location.latitude, location.longitude):
+                valid_results.append({
                     'lat': location.latitude,
                     'lng': location.longitude,
                     'source': 'osm',
                     'quality': quality,
                     'query': attempt_query,
-                }
-                geocode_cache[cache_key] = result
-                log(f"  [OSM] {quality} | {attempt_query} -> ({location.latitude:.5f}, {location.longitude:.5f})")
-                return result
+                })
         except Exception:
             pass
     
+    # Pick the best result from collected candidates
+    if valid_results:
+        # Prefer: intersection-2 > street+cross > street-only > cross-only > city-only
+        quality_rank = {'intersection-2': 5, 'street+cross': 4, 'street-only': 3, 'cross-only': 2, 'city-only': 1}
+        
+        def score_result(r: dict) -> tuple[float, float]:
+            qr = quality_rank.get(r.get('quality', ''), 0)
+            lat = r['lat']
+            lng = r['lng']
+            
+            # Distance from Shreveport center (most incidents are in urban area)
+            dist_m = _haversine_m(lat, lng, SHREVEPORT_CENTER_LAT, SHREVEPORT_CENTER_LON)
+            
+            # Penalize results far from Shreveport urban core:
+            # - Most incidents are in lat 32.40-32.55 range
+            # - Results below 32.38 are likely wrong matches (near parish border)
+            urban_penalty = 0
+            if lat < 32.38:
+                urban_penalty = 15000  # Strong penalty for parish border area
+            elif lat < 32.42:
+                urban_penalty = 5000   # Moderate penalty for southern outskirts
+            
+            # Bonus for being west of -93.70 (clearly not Bossier)
+            west_bonus = 2000 if lng < -93.70 else 0
+            
+            # Final score: quality first, then location score
+            location_score = west_bonus - dist_m - urban_penalty
+            return (qr, location_score)
+        
+        valid_results.sort(key=score_result, reverse=True)
+        result = valid_results[0]
+        geocode_cache[cache_key] = result
+        log(f"  [{result['source'].upper()[:3]}] {result['quality']} | {result['query']} -> ({result['lat']:.5f}, {result['lng']:.5f})")
+        return result
+    
     log(f"  [--] fallback | {street_clean or '?'} @ {cross1 or '?'} {'& ' + cross2 if cross2 else ''}")
     
-    # Fallback to Shreveport area
+    # Fallback to Shreveport area (randomized within western Caddo Parish)
     offset = lambda: (random.random() - 0.5) * 0.04
     default = {
         'lat': 32.47 + offset(),
@@ -715,48 +978,63 @@ def get_history():
     offset = request.args.get('offset', 0, type=int)
     date = request.args.get('date')  # YYYY-MM-DD format
     
+    all_incidents: list[dict] = []
+    total = 0
+    
+    # Query main database
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
     
-    # History should not include incidents that are currently active on Caddo911.
-    # Only return cleared/inactive incidents.
     if date:
         bounds = _central_date_bounds_utc(date)
         if bounds:
             start_utc, end_utc = bounds
             cursor.execute(
-                'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC LIMIT ? OFFSET ?',
-                (start_utc, end_utc, limit, offset)
+                'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                (start_utc, end_utc)
             )
-        else:
-            cursor.execute(
-                'SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC LIMIT ? OFFSET ?',
-                (limit, offset)
-            )
-    else:
-        cursor.execute(
-            'SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC LIMIT ? OFFSET ?',
-            (limit, offset)
-        )
-    
-    incidents = [dict(row) for row in cursor.fetchall()]
-    
-    if date:
-        bounds = _central_date_bounds_utc(date)
-        if bounds:
-            start_utc, end_utc = bounds
+            all_incidents.extend([dict(row) for row in cursor.fetchall()])
             cursor.execute(
                 'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
                 (start_utc, end_utc)
             )
-        else:
-            cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
+            total += cursor.fetchone()['count']
     else:
+        cursor.execute('SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC')
+        all_incidents.extend([dict(row) for row in cursor.fetchall()])
         cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
-    total = cursor.fetchone()['count']
-    
+        total += cursor.fetchone()['count']
     conn.close()
-    return jsonify({'incidents': incidents, 'total': total})
+    
+    # Also query archive database(s) if date is specified and archive exists
+    if date:
+        archive_dbs = _get_archive_dbs_for_date(date)
+        for archive_path in archive_dbs:
+            try:
+                archive_conn = _archive_db_connect(archive_path, row_factory=True)
+                archive_cursor = archive_conn.cursor()
+                bounds = _central_date_bounds_utc(date)
+                if bounds:
+                    start_utc, end_utc = bounds
+                    archive_cursor.execute(
+                        'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                        (start_utc, end_utc)
+                    )
+                    all_incidents.extend([dict(row) for row in archive_cursor.fetchall()])
+                    archive_cursor.execute(
+                        'SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                        (start_utc, end_utc)
+                    )
+                    total += archive_cursor.fetchone()['count']
+                archive_conn.close()
+            except Exception as e:
+                log(f"[ARCHIVE] Error reading {archive_path}: {e}")
+    
+    # Sort all incidents by first_seen descending, then apply pagination
+    all_incidents.sort(key=lambda x: x.get('first_seen') or '', reverse=True)
+    paginated = all_incidents[offset:offset + limit]
+    
+    return jsonify({'incidents': paginated, 'total': total})
 
 @app.route('/api/incidents/history_counts')
 def get_history_counts():
@@ -765,23 +1043,43 @@ def get_history_counts():
     if not month or len(month) != 7:
         return jsonify({'error': 'month is required (YYYY-MM)'}), 400
 
+    counts: dict[str, int] = {}
+    bounds = _central_month_bounds_utc(month)
+    
+    # Query main database
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
-    bounds = _central_month_bounds_utc(month)
-    counts: dict[str, int] = {}
     if bounds:
         start_utc, end_utc = bounds
         cursor.execute(
             'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
             (start_utc, end_utc)
         )
-        rows = cursor.fetchall()
-        for row in rows:
+        for row in cursor.fetchall():
             day = _central_date_key(row['first_seen'])
-            if not day:
-                continue
-            counts[day] = counts.get(day, 0) + 1
+            if day:
+                counts[day] = counts.get(day, 0) + 1
     conn.close()
+    
+    # Also query archive database if it exists for this month
+    archive_dbs = _get_archive_dbs_for_month(month)
+    for archive_path in archive_dbs:
+        try:
+            archive_conn = _archive_db_connect(archive_path, row_factory=True)
+            archive_cursor = archive_conn.cursor()
+            if bounds:
+                start_utc, end_utc = bounds
+                archive_cursor.execute(
+                    'SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                    (start_utc, end_utc)
+                )
+                for row in archive_cursor.fetchall():
+                    day = _central_date_key(row['first_seen'])
+                    if day:
+                        counts[day] = counts.get(day, 0) + 1
+            archive_conn.close()
+        except Exception as e:
+            log(f"[ARCHIVE] Error reading {archive_path}: {e}")
 
     return jsonify({'counts': counts})
 
@@ -881,7 +1179,20 @@ def force_refresh():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, initial_scrape: bool = True) -> BackgroundScheduler:
+def _background_archive():
+    """Background task to archive old incidents (runs daily)."""
+    try:
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Running daily archive check...")
+        result = archive_old_incidents(dry_run=False)
+        if result['archived'] > 0:
+            log(f"[{datetime.now().strftime('%H:%M:%S')}] Archived {result['archived']} incidents to {len(result['files'])} file(s)")
+        else:
+            log(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents to archive")
+    except Exception as e:
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Archive error: {e}")
+
+
+def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, initial_scrape: bool = True, enable_archive: bool = True) -> BackgroundScheduler:
     """Start background scraping + DB persistence, return the scheduler."""
     global scrape_interval_seconds
     scrape_interval_seconds = int(interval_seconds)
@@ -890,14 +1201,31 @@ def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, 
     if initial_scrape:
         background_scrape()
 
-    scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler(timezone=CENTRAL_TZ)
+    
+    # Scrape job - runs every N seconds
     scheduler.add_job(
         background_scrape,
         'interval',
         seconds=int(scrape_interval_seconds),
         max_instances=1,
         coalesce=True,
+        id='scrape_job',
     )
+    
+    # Archive job - runs daily at 3:00 AM Central time
+    if enable_archive:
+        scheduler.add_job(
+            _background_archive,
+            'cron',
+            hour=3,
+            minute=0,
+            max_instances=1,
+            coalesce=True,
+            id='archive_job',
+        )
+        log(f"[CADDO 911] Daily archive scheduled for 3:00 AM Central")
+    
     scheduler.start()
     return scheduler
 
@@ -931,12 +1259,12 @@ def _read_key_nonblocking() -> str | None:
         return None
     return None
 
-def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_interval_seconds: int = 60) -> None:
+def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_interval_seconds: int = 60, enable_archive: bool = True) -> None:
     """
     Start in 'event gather' mode (collector only), and allow starting the web UI on demand.
     Press '2' to start the web UI. Press 'q' to quit.
     """
-    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True, enable_archive=enable_archive)
     web_thread: Thread | None = None
 
     log("[CADDO 911] Event gather mode is running (collector only).")
@@ -966,9 +1294,9 @@ def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_inte
             pass
         log("[CADDO 911] Collector stopped.")
 
-def run_gather_mode(*, scrape_interval_seconds: int = 60) -> None:
+def run_gather_mode(*, scrape_interval_seconds: int = 60, enable_archive: bool = True) -> None:
     """Collector-only mode. No web server, just keeps filling the DB."""
-    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True, enable_archive=enable_archive)
     log("[CADDO 911] Collector-only mode running. Press Ctrl+C to stop.")
     try:
         while True:
@@ -982,6 +1310,116 @@ def run_gather_mode(*, scrape_interval_seconds: int = 60) -> None:
             pass
         log("[CADDO 911] Collector stopped.")
 
+def run_regeocode(*, dry_run: bool = False, limit: int | None = None) -> None:
+    """
+    Re-geocode all incidents in the database using the improved geocoding logic.
+    Useful for fixing historical bad geocodes (e.g., Bossier Parish false positives).
+    """
+    init_db()
+    conn = db_connect(row_factory=True)
+    cursor = conn.cursor()
+    
+    # Get all incidents (or limit if specified)
+    if limit:
+        cursor.execute('SELECT * FROM incidents ORDER BY first_seen DESC LIMIT ?', (limit,))
+    else:
+        cursor.execute('SELECT * FROM incidents ORDER BY first_seen DESC')
+    
+    rows = cursor.fetchall()
+    total = len(rows)
+    log(f"[REGEOCODE] Found {total} incidents to process{' (dry run)' if dry_run else ''}")
+    
+    updated = 0
+    skipped = 0
+    failed = 0
+    
+    # Clear the geocode cache to force fresh lookups
+    geocode_cache.clear()
+    
+    for i, row in enumerate(rows, 1):
+        # Convert Row to dict for easier access (handles missing columns gracefully)
+        row_dict = dict(row)
+        incident_id = row_dict['id']
+        street = row_dict.get('street')
+        cross_streets = row_dict.get('cross_streets')
+        municipality = row_dict.get('municipality')
+        old_lat = row_dict.get('latitude')
+        old_lng = row_dict.get('longitude')
+        old_source = row_dict.get('geocode_source')
+        old_quality = row_dict.get('geocode_quality')
+        desc = row_dict.get('description') or 'Unknown'
+        
+        # Skip if no address info at all
+        if not street and not cross_streets:
+            skipped += 1
+            continue
+        
+        try:
+            # Get new geocode
+            geo = geocode_address(street, cross_streets, municipality)
+            new_lat = geo.get('lat')
+            new_lng = geo.get('lng')
+            new_source = geo.get('source')
+            new_quality = geo.get('quality')
+            
+            # Check if coordinates changed significantly (>50m)
+            changed = False
+            if old_lat is None or old_lng is None:
+                changed = True
+            elif new_lat is not None and new_lng is not None:
+                dist = _haversine_m(float(old_lat), float(old_lng), float(new_lat), float(new_lng))
+                changed = dist > 50
+            
+            # Log progress
+            status = "CHANGED" if changed else "same"
+            if changed and not dry_run:
+                now = datetime.now(timezone.utc).isoformat()
+                try:
+                    cursor.execute('''
+                        UPDATE incidents 
+                        SET latitude = ?, longitude = ?, geocode_source = ?, geocode_quality = ?, 
+                            geocode_query = ?, geocoded_at = ?
+                        WHERE id = ?
+                    ''', (new_lat, new_lng, new_source, new_quality, geo.get('query'), now, incident_id))
+                    updated += 1
+                except sqlite3.OperationalError:
+                    # Older schema
+                    cursor.execute('UPDATE incidents SET latitude = ?, longitude = ? WHERE id = ?',
+                                   (new_lat, new_lng, incident_id))
+                    updated += 1
+            elif changed:
+                updated += 1  # Count as "would update" in dry run
+            
+            # Progress every 25 incidents
+            if i % 25 == 0 or i == total:
+                log(f"[REGEOCODE] Progress: {i}/{total} ({updated} updated, {skipped} skipped)")
+                
+        except Exception as e:
+            failed += 1
+            log(f"[REGEOCODE] Error on incident {incident_id}: {e}")
+        
+        # Small delay to avoid hammering geocoding APIs
+        time.sleep(0.05)
+    
+    if not dry_run:
+        conn.commit()
+    conn.close()
+    
+    log(f"[REGEOCODE] Complete! Updated: {updated}, Skipped: {skipped}, Failed: {failed}")
+    if dry_run:
+        log(f"[REGEOCODE] (Dry run - no changes were saved)")
+
+
+def run_archive(*, dry_run: bool = False) -> None:
+    """Run the archive process to move old incidents to monthly archive DBs."""
+    init_db()
+    result = archive_old_incidents(dry_run=dry_run)
+    if result['archived'] == 0:
+        log("[ARCHIVE] Nothing to archive.")
+    else:
+        log(f"[ARCHIVE] Done. Archived {result['archived']} incidents.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Caddo 911 Live Feed")
     parser.add_argument("--mode", choices=["serve", "gather", "interactive"], default="serve",
@@ -990,21 +1428,40 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=3911)
     parser.add_argument("--interval", type=int, default=60, help="scrape interval in seconds")
     parser.add_argument("--quiet", action="store_true", help="reduce console output (recommended for gather mode)")
+    parser.add_argument("--regeocode", action="store_true", help="re-geocode all incidents in database using improved logic, then exit")
+    parser.add_argument("--regeocode-dry-run", action="store_true", help="like --regeocode but don't save changes (preview only)")
+    parser.add_argument("--regeocode-limit", type=int, default=None, help="limit re-geocoding to N most recent incidents")
+    parser.add_argument("--archive", action="store_true", help=f"archive incidents older than {ARCHIVE_AFTER_DAYS} days to monthly DBs, then exit")
+    parser.add_argument("--archive-dry-run", action="store_true", help="like --archive but don't move anything (preview only)")
+    parser.add_argument("--no-auto-archive", action="store_true", help="disable daily automatic archiving (3 AM Central)")
     args = parser.parse_args()
 
     global QUIET
     QUIET = bool(args.quiet or args.mode == "gather")
 
+    # Handle archive modes (one-time, then exit)
+    if args.archive or args.archive_dry_run:
+        run_archive(dry_run=args.archive_dry_run)
+        return
+
+    # Handle re-geocode modes (one-time, then exit)
+    if args.regeocode or args.regeocode_dry_run:
+        run_regeocode(dry_run=args.regeocode_dry_run, limit=args.regeocode_limit)
+        return
+
+    # Store archive preference for start_collector
+    enable_archive = not args.no_auto_archive
+
     if args.mode == "gather":
-        run_gather_mode(scrape_interval_seconds=args.interval)
+        run_gather_mode(scrape_interval_seconds=args.interval, enable_archive=enable_archive)
         return
 
     if args.mode == "interactive":
-        run_interactive_mode(host=args.host, port=args.port, scrape_interval_seconds=args.interval)
+        run_interactive_mode(host=args.host, port=args.port, scrape_interval_seconds=args.interval, enable_archive=enable_archive)
         return
 
     # serve mode: collector + web UI immediately
-    scheduler = start_collector(interval_seconds=args.interval, initial_scrape=True)
+    scheduler = start_collector(interval_seconds=args.interval, initial_scrape=True, enable_archive=enable_archive)
     try:
         run_webserver(host=args.host, port=args.port)
     except KeyboardInterrupt:
