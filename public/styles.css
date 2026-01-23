@@ -1194,8 +1194,8 @@
     }
 
     .dp-day.today.selected {
-      border-color: rgba(255, 255, 255, 0.85);
-      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset;
+      border-color: rgba(0, 255, 136, 0.8);
+      box-shadow: 0 0 0 1px rgba(0, 255, 136, 0.25) inset;
     }
     
     .empty-state {
