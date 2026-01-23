@@ -935,6 +935,16 @@
 
         const el = document.getElementById('last-update');
 
+        if (status.centralDate) {
+          const prevToday = isoToday;
+          isoToday = status.centralDate;
+          if (historySelectedDate === prevToday) {
+            setHistoryDate(status.centralDate, { load: false });
+          } else {
+            renderDatePicker();
+          }
+        }
+
         // Prefer the upstream Caddo911 "Refreshed at:" timestamp if available.
         if (status.feedRefreshedAt) {
           const tz = status.centralTzAbbr || 'CT';
@@ -1054,7 +1064,29 @@
     const historyDateValue = document.getElementById('history-date-value');
     const datePickerEl = document.getElementById('date-picker');
 
-    const isoToday = new Date().toISOString().split('T')[0];
+    function pad2(n) {
+      return String(n).padStart(2, '0');
+    }
+
+    function formatIsoDate(year, month, day) {
+      return `${year}-${pad2(month)}-${pad2(day)}`;
+    }
+
+    function getCentralIsoDateFallback() {
+      try {
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Chicago',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(new Date());
+      } catch (error) {
+        const d = new Date();
+        return formatIsoDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+      }
+    }
+
+    let isoToday = getCentralIsoDateFallback();
     let historySelectedDate = isoToday;
     let historyViewMonth = (() => {
       const d = parseISODate(isoToday);
@@ -1062,10 +1094,6 @@
       return d;
     })();
     const historyCountsByMonth = new Map();
-
-    function pad2(n) {
-      return String(n).padStart(2, '0');
-    }
 
     function monthKeyFromDate(date) {
       return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;

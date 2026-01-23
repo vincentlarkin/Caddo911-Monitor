@@ -141,9 +141,47 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
         return None
     try:
         # We store timezone-aware ISO timestamps (UTC) via datetime.now(timezone.utc).isoformat()
-        return datetime.fromisoformat(value)
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            # Treat naive timestamps as UTC for backwards compatibility.
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
+
+def _central_date_bounds_utc(date_str: str) -> tuple[str, str] | None:
+    """Return UTC ISO start/end for a Central date (YYYY-MM-DD)."""
+    try:
+        year_s, month_s, day_s = (date_str or "").split("-")
+        year, month, day = int(year_s), int(month_s), int(day_s)
+        start_local = datetime(year, month, day, tzinfo=CENTRAL_TZ)
+        end_local = start_local + timedelta(days=1)
+        start_utc = start_local.astimezone(timezone.utc).isoformat()
+        end_utc = end_local.astimezone(timezone.utc).isoformat()
+        return start_utc, end_utc
+    except Exception:
+        return None
+
+def _central_month_bounds_utc(month_str: str) -> tuple[str, str] | None:
+    """Return UTC ISO start/end for a Central month (YYYY-MM)."""
+    try:
+        year_s, month_s = (month_str or "").split("-")
+        year, month = int(year_s), int(month_s)
+        start_local = datetime(year, month, 1, tzinfo=CENTRAL_TZ)
+        if month == 12:
+            end_local = datetime(year + 1, 1, 1, tzinfo=CENTRAL_TZ)
+        else:
+            end_local = datetime(year, month + 1, 1, tzinfo=CENTRAL_TZ)
+        start_utc = start_local.astimezone(timezone.utc).isoformat()
+        end_utc = end_local.astimezone(timezone.utc).isoformat()
+        return start_utc, end_utc
+    except Exception:
+        return None
+
+def _central_date_key(value: str | None) -> str | None:
+    dt = _parse_iso_datetime(value)
+    c = _to_central(dt)
+    return c.date().isoformat() if c else None
 
 def _to_central(dt: datetime | None) -> datetime | None:
     if not dt:
@@ -680,10 +718,18 @@ def get_history():
     # History should not include incidents that are currently active on Caddo911.
     # Only return cleared/inactive incidents.
     if date:
-        cursor.execute(
-            'SELECT * FROM incidents WHERE is_active = 0 AND DATE(first_seen) = ? ORDER BY first_seen DESC LIMIT ? OFFSET ?',
-            (date, limit, offset)
-        )
+        bounds = _central_date_bounds_utc(date)
+        if bounds:
+            start_utc, end_utc = bounds
+            cursor.execute(
+                'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC LIMIT ? OFFSET ?',
+                (start_utc, end_utc, limit, offset)
+            )
+        else:
+            cursor.execute(
+                'SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC LIMIT ? OFFSET ?',
+                (limit, offset)
+            )
     else:
         cursor.execute(
             'SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC LIMIT ? OFFSET ?',
@@ -693,7 +739,15 @@ def get_history():
     incidents = [dict(row) for row in cursor.fetchall()]
     
     if date:
-        cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND DATE(first_seen) = ?', (date,))
+        bounds = _central_date_bounds_utc(date)
+        if bounds:
+            start_utc, end_utc = bounds
+            cursor.execute(
+                'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+                (start_utc, end_utc)
+            )
+        else:
+            cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
     else:
         cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
     total = cursor.fetchone()['count']
@@ -710,19 +764,22 @@ def get_history_counts():
 
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
-    cursor.execute(
-        '''
-        SELECT DATE(first_seen) as day, COUNT(*) as count
-        FROM incidents
-        WHERE is_active = 0 AND strftime('%Y-%m', first_seen) = ?
-        GROUP BY day
-        ''',
-        (month,)
-    )
-    rows = cursor.fetchall()
+    bounds = _central_month_bounds_utc(month)
+    counts: dict[str, int] = {}
+    if bounds:
+        start_utc, end_utc = bounds
+        cursor.execute(
+            'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+            (start_utc, end_utc)
+        )
+        rows = cursor.fetchall()
+        for row in rows:
+            day = _central_date_key(row['first_seen'])
+            if not day:
+                continue
+            counts[day] = counts.get(day, 0) + 1
     conn.close()
 
-    counts = {row['day']: row['count'] for row in rows}
     return jsonify({'counts': counts})
 
 @app.route('/api/stats')
@@ -733,8 +790,15 @@ def get_stats():
     cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 1')
     active = cursor.fetchone()['count']
     
-    cursor.execute("SELECT COUNT(*) as count FROM incidents WHERE DATE(first_seen) = DATE('now')")
-    today = cursor.fetchone()['count']
+    today = 0
+    today_bounds = _central_date_bounds_utc(datetime.now(CENTRAL_TZ).date().isoformat())
+    if today_bounds:
+        start_utc, end_utc = today_bounds
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ?",
+            (start_utc, end_utc)
+        )
+        today = cursor.fetchone()['count']
     
     cursor.execute('SELECT COUNT(*) as count FROM incidents')
     total = cursor.fetchone()['count']
@@ -785,6 +849,7 @@ def get_status():
         'serverNow': datetime.now(timezone.utc).isoformat(),
         # Central-time helpers for the UI (so clients always see Louisiana time, not browser locale)
         'centralTzAbbr': ("CST" if CENTRAL_TZ_IS_FALLBACK else now_central.strftime("%Z")),
+        'centralDate': now_central.date().isoformat(),
         'lastUpdateDisplay': _format_central_hms(display_base),
         'lastUpdateTooltip': _format_central_tooltip(display_base),
         # milliseconds (frontend expects ms)
