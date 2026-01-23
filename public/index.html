@@ -124,6 +124,10 @@
               <span>Low severity</span>
             </div>
             <div class="legend-item">
+              <div class="legend-dot" style="background: var(--green)"></div>
+              <span>Public service</span>
+            </div>
+            <div class="legend-item">
               <div class="legend-dot" style="background: var(--gray)"></div>
               <span>Custody / prisoner</span>
             </div>
@@ -143,24 +147,45 @@
 
       <!-- Shared filters (apply to Live + History lists) -->
       <div class="filter-bar">
-        <div class="filter-group">
-          <button class="filter-btn active" data-filter="all">All</button>
-          <button class="filter-btn" data-filter="cadfd">
-            <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
-            <span>CAD-FD/EMS</span>
-          </button>
-          <button class="filter-btn" data-filter="shvfd">
-            <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
-            <span>SHVFD</span>
-          </button>
-          <button class="filter-btn" data-filter="police">
-            <img src="images/spd-police.png" alt="Police" class="filter-logo">
-            <span>Police</span>
-          </button>
-          <button class="filter-btn" data-filter="sheriff">
-            <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
-            <span>Sheriff</span>
-          </button>
+        <div class="filter-rows">
+          <!-- Agency filters -->
+          <div class="filter-group" data-filter-type="agency">
+            <button class="filter-btn active" data-filter="all" title="All agencies">All</button>
+            <button class="filter-btn" data-filter="cadfd" title="Caddo Fire/EMS">
+              <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
+            </button>
+            <button class="filter-btn" data-filter="shvfd" title="Shreveport Fire">
+              <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
+            </button>
+            <button class="filter-btn" data-filter="police" title="Shreveport Police">
+              <img src="images/spd-police.png" alt="Police" class="filter-logo">
+            </button>
+            <button class="filter-btn" data-filter="sheriff" title="Caddo Sheriff">
+              <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
+            </button>
+          </div>
+          <!-- Urgency/Severity filters -->
+          <div class="filter-group" data-filter-type="urgency">
+            <button class="filter-btn urgency-btn active" data-urgency="all" title="All severity levels">All</button>
+            <button class="filter-btn urgency-btn urgency-high" data-urgency="high" title="High severity">
+              <span class="urgency-dot"></span>
+            </button>
+            <button class="filter-btn urgency-btn urgency-medical" data-urgency="medical" title="Medical/EMS">
+              <span class="urgency-dot"></span>
+            </button>
+            <button class="filter-btn urgency-btn urgency-medium" data-urgency="medium" title="Medium severity">
+              <span class="urgency-dot"></span>
+            </button>
+            <button class="filter-btn urgency-btn urgency-low" data-urgency="low" title="Low severity">
+              <span class="urgency-dot"></span>
+            </button>
+            <button class="filter-btn urgency-btn urgency-service" data-urgency="service" title="Public service">
+              <span class="urgency-dot"></span>
+            </button>
+            <button class="filter-btn urgency-btn urgency-custody" data-urgency="custody" title="Custody/Prisoner">
+              <span class="urgency-dot"></span>
+            </button>
+          </div>
         </div>
         <div class="filter-meta">
           <div class="history-count hidden" id="history-count">
@@ -418,11 +443,12 @@
     const markers = new Map();
     let currentIncidents = [];
     let currentHistoryIncidents = [];
-    let currentFilter = 'all';
+    let currentFilter = 'all';  // Agency filter
+    let currentUrgencyFilter = 'all';  // Urgency/severity filter
     let currentSort = 'recent'; // 'recent' | 'urgency'
     let mapMode = 'live'; // 'live' | 'history'
     let historyPage = 1;
-    const historyPageSize = 50;
+    const historyPageSize = 35;
     let historyTotal = 0;
     
     // Agency color mapping
@@ -474,13 +500,18 @@
         'caddo ems event',
       ];
 
+      const SERVICE = [
+        'special event stand by',
+        'public service',
+      ];
+
       // Explicit low-priority / administrative / follow-up type calls
       const LOW = [
         'deliver message', 'prisoner medical security', 'periodic check', 'taken by other agency',
         'follow up', 'followup', 'follow', 'investigation', 'report', 'information',
         'citizen assist', 'citizen assistance', 'assist citizen', 'civil',
         'welfare check', 'wellness check', 'property check', 'extra patrol', 'directed patrol',
-        'noise', 'complaint', 'parking', 'traffic control',
+        'noise', 'complaint', 'parking', 'traffic control', 'traffic stop',
         'lost property', 'found property',
       ];
 
@@ -525,6 +556,7 @@
       if (_includesAny(d, CUSTODY)) return 'custody';
       if (agency === 'EMS' || agency.includes('EMS')) return 'medical';
       if (_includesAny(d, MEDICAL_EMERGENCY)) return 'medical';
+      if (_includesAny(d, SERVICE)) return 'service';
       if (_includesAny(d, HIGH)) return 'high';
       if (_includesAny(d, LOW)) return 'low';
       if (_includesAny(d, MEDIUM)) return 'medium';
@@ -540,12 +572,14 @@
     function getSeverityClass(sev) {
       if (sev === 'medical') return 'sev-medical';
       if (sev === 'custody') return 'sev-custody';
+      if (sev === 'service') return 'sev-service';
       return sev === 'high' ? 'sev-high' : sev === 'low' ? 'sev-low' : 'sev-medium';
     }
 
     function getSeverityColor(sev) {
       if (sev === 'high' || sev === 'medical') return '#ff3b3b';
       if (sev === 'custody') return '#9aa0aa';
+      if (sev === 'service') return '#00ff88';
       if (sev === 'low') return '#3b8bff';
       return '#ffb830';
     }
@@ -608,27 +642,35 @@
     }
     
     // Filter logic - matches agency codes to filter categories
-    function matchesFilter(incident, filter) {
+    function matchesAgencyFilter(incident, filter) {
       if (filter === 'all') return true;
       
       const agency = incident.agency.toUpperCase();
       
       switch (filter) {
         case 'cadfd':
-          // Caddo Fire Districts + Caddo EMS events live on CFD_* pages
           return agency.startsWith('CFD');
         case 'shvfd':
-          // Shreveport Fire Dept live on SFD_* pages
           return agency.startsWith('SFD');
         case 'police':
-          // SPD = Shreveport Police Dept
           return agency === 'SPD' || agency.includes('POLICE');
         case 'sheriff':
-          // CSO = Caddo Sheriff's Office
           return agency === 'CSO' || agency.includes('SHERIFF');
         default:
           return true;
       }
+    }
+
+    // Urgency filter logic - matches severity levels
+    function matchesUrgencyFilter(incident, urgencyFilter) {
+      if (urgencyFilter === 'all') return true;
+      const sev = getSeverity(incident);
+      return sev === urgencyFilter;
+    }
+
+    // Combined filter - checks both agency AND urgency
+    function matchesFilters(incident, agencyFilter, urgencyFilter) {
+      return matchesAgencyFilter(incident, agencyFilter) && matchesUrgencyFilter(incident, urgencyFilter);
     }
     
     function filterLabel(filter) {
@@ -641,8 +683,22 @@
       }
     }
 
-    function getFilteredIncidents(incidents, filter) {
-      return incidents.filter(inc => matchesFilter(inc, filter));
+    function urgencyLabel(urgency) {
+      switch (urgency) {
+        case 'high': return 'high severity';
+        case 'medical': return 'medical/EMS';
+        case 'medium': return 'medium severity';
+        case 'low': return 'low severity';
+        case 'service': return 'public service';
+        case 'custody': return 'custody';
+        default: return urgency;
+      }
+    }
+
+    function getFilteredIncidents(incidents, agencyFilter, urgencyFilter) {
+      const af = agencyFilter ?? currentFilter;
+      const uf = urgencyFilter ?? currentUrgencyFilter;
+      return incidents.filter(inc => matchesFilters(inc, af, uf));
     }
 
     function _incidentTimeValue(incident) {
@@ -660,61 +716,106 @@
 
     function _urgencyRank(incident) {
       const sev = getSeverity(incident);
-      return sev === 'high' ? 3 : sev === 'medical' ? 2.5 : sev === 'medium' ? 2 : sev === 'low' ? 1 : 0.5;
+      return sev === 'high' ? 5
+        : sev === 'medical' ? 4
+        : sev === 'medium' ? 3
+        : sev === 'low' ? 2
+        : sev === 'service' ? 1
+        : 0;
     }
 
     function sortIncidents(incidents) {
       const list = Array.isArray(incidents) ? [...incidents] : [];
       if (currentSort === 'urgency') {
-        return list.sort((a, b) => {
-          const rankDiff = _urgencyRank(b) - _urgencyRank(a);
-          if (rankDiff !== 0) return rankDiff;
-          return _incidentTimeValue(b) - _incidentTimeValue(a);
-        });
+        return list.sort((a, b) => _urgencyRank(b) - _urgencyRank(a));
       }
       return list.sort((a, b) => _incidentTimeValue(b) - _incidentTimeValue(a));
     }
 
-    // Hide fire-related filters when there are zero matching incidents.
-    // This avoids confusing cases where users click a filter that has no data.
+    // Update filter button visibility and counts for both agency and urgency filters.
+    // This dims filters with 0 incidents so users understand they're empty.
     function updateFilterButtonVisibility(baseIncidents) {
-      const counts = {
+      // Agency counts (considering current urgency filter)
+      const agencyCounts = {
         cadfd: 0,
         shvfd: 0,
         police: 0,
         sheriff: 0,
       };
 
+      // Urgency counts (considering current agency filter)
+      const urgencyCounts = {
+        high: 0,
+        medical: 0,
+        medium: 0,
+        low: 0,
+        service: 0,
+        custody: 0,
+      };
+
       for (const inc of baseIncidents || []) {
-        if (matchesFilter(inc, 'cadfd')) counts.cadfd += 1;
-        if (matchesFilter(inc, 'shvfd')) counts.shvfd += 1;
-        if (matchesFilter(inc, 'police')) counts.police += 1;
-        if (matchesFilter(inc, 'sheriff')) counts.sheriff += 1;
+        const sev = getSeverity(inc);
+        
+        // Count for agency filters (apply current urgency filter)
+        if (matchesUrgencyFilter(inc, currentUrgencyFilter)) {
+          if (matchesAgencyFilter(inc, 'cadfd')) agencyCounts.cadfd += 1;
+          if (matchesAgencyFilter(inc, 'shvfd')) agencyCounts.shvfd += 1;
+          if (matchesAgencyFilter(inc, 'police')) agencyCounts.police += 1;
+          if (matchesAgencyFilter(inc, 'sheriff')) agencyCounts.sheriff += 1;
+        }
+
+        // Count for urgency filters (apply current agency filter)
+        if (matchesAgencyFilter(inc, currentFilter)) {
+          if (urgencyCounts.hasOwnProperty(sev)) {
+            urgencyCounts[sev] += 1;
+          }
+        }
       }
 
       // Always show filter "tabs" even when they have 0 incidents.
       // Visually dim them so users understand they’re empty, but still allow clicking
       // (the list will show a "No incidents" message).
-      document.querySelectorAll('.filter-btn').forEach(btn => {
+      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
         const f = btn.dataset.filter;
         if (f === 'all') {
           btn.dataset.count = '';
           btn.classList.remove('empty');
           return;
         }
-        const count = counts[f] || 0;
+        const count = agencyCounts[f] || 0;
         btn.dataset.count = String(count);
         btn.classList.toggle('empty', count === 0);
       });
 
-      // If the active filter has no incidents, fall back to "all".
-      if (currentFilter !== 'all' && (counts[currentFilter] || 0) === 0) {
+      // Update urgency filter buttons
+      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+        const u = btn.dataset.urgency;
+        if (u === 'all') {
+          btn.dataset.count = '';
+          btn.classList.remove('empty');
+          return;
+        }
+        const count = urgencyCounts[u] || 0;
+        btn.dataset.count = String(count);
+        btn.classList.toggle('empty', count === 0);
+      });
+
+      // If the active agency filter has no incidents (after urgency filter), fall back to "all".
+      if (currentFilter !== 'all' && (agencyCounts[currentFilter] || 0) === 0) {
         currentFilter = 'all';
       }
 
+      // If the active urgency filter has no incidents (after agency filter), fall back to "all".
+      if (currentUrgencyFilter !== 'all' && (urgencyCounts[currentUrgencyFilter] || 0) === 0) {
+        currentUrgencyFilter = 'all';
+      }
+
       // Keep active state consistent (especially after fallback)
-      document.querySelectorAll('.filter-btn').forEach(btn => {
+      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === currentFilter);
+      });
+      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.urgency === currentUrgencyFilter);
       });
     }
     
@@ -935,8 +1036,8 @@
         const liveVisible = livePanel && !livePanel.classList.contains('hidden');
         if (liveVisible) updateFilterButtonVisibility(allIncidents);
         
-        // Apply current filter
-        const incidents = getFilteredIncidents(allIncidents, currentFilter);
+        // Apply current filters (agency + urgency)
+        const incidents = getFilteredIncidents(allIncidents);
         
         // Update counts
         document.getElementById('active-count').textContent = allIncidents.length;
@@ -958,12 +1059,24 @@
       const listEl = document.getElementById('incident-list');
       const sorted = sortIncidents(incidents);
       if (sorted.length === 0) {
-        const label = currentFilter === 'all' ? 'active' : filterLabel(currentFilter);
+        const hasAgencyFilter = currentFilter !== 'all';
+        const hasUrgencyFilter = currentUrgencyFilter !== 'all';
+        const hasAnyFilter = hasAgencyFilter || hasUrgencyFilter;
+        
+        let label = 'active';
+        if (hasAgencyFilter && hasUrgencyFilter) {
+          label = `${urgencyLabel(currentUrgencyFilter)} ${filterLabel(currentFilter)}`;
+        } else if (hasAgencyFilter) {
+          label = filterLabel(currentFilter);
+        } else if (hasUrgencyFilter) {
+          label = urgencyLabel(currentUrgencyFilter);
+        }
+        
         listEl.innerHTML = `
           <div class="empty-state">
             <div class="icon">📡</div>
             <p>No ${label} incidents</p>
-            <p style="font-size: 11px; margin-top: 10px;">${currentFilter === 'all' ? 'Waiting for data...' : 'Try a different filter'}</p>
+            <p style="font-size: 11px; margin-top: 10px;">${hasAnyFilter ? 'Try a different filter combination' : 'Waiting for data...'}</p>
           </div>
         `;
       } else {
@@ -971,31 +1084,68 @@
       }
     }
     
-    // Apply filter and update display
-    function applyFilter(filter) {
-      const btn = document.querySelector(`.filter-btn[data-filter="${filter}"]`);
+    // Apply agency filter and update display
+    function applyAgencyFilter(filter) {
+      const btn = document.querySelector(`.filter-group[data-filter-type="agency"] .filter-btn[data-filter="${filter}"]`);
       const isEmpty = filter !== 'all' && btn?.classList.contains('empty');
       if (isEmpty) {
         return;
       }
       currentFilter = filter;
       
-      // Update filter button states
-      document.querySelectorAll('.filter-btn').forEach(btn => {
+      // Update agency filter button states
+      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === filter);
       });
 
+      refreshFilteredView();
+    }
+
+    // Apply urgency filter and update display
+    function applyUrgencyFilter(urgency) {
+      const btn = document.querySelector(`.filter-group[data-filter-type="urgency"] .filter-btn[data-urgency="${urgency}"]`);
+      const isEmpty = urgency !== 'all' && btn?.classList.contains('empty');
+      if (isEmpty) {
+        return;
+      }
+      currentUrgencyFilter = urgency;
+      
+      // Update urgency filter button states
+      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.urgency === urgency);
+      });
+
+      refreshFilteredView();
+    }
+
+    // Refresh the view with current filters applied
+    function refreshFilteredView() {
       const livePanel = document.getElementById('live-panel');
       const historyPanel = document.getElementById('history-panel');
       const liveVisible = livePanel && !livePanel.classList.contains('hidden');
       const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
 
+      // Update filter button visibility/counts based on current filters
+      if (liveVisible) {
+        updateFilterButtonVisibility(currentIncidents);
+      } else if (historyVisible) {
+        updateFilterButtonVisibility(currentHistoryIncidents);
+      }
+
       if (historyVisible) {
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents, filter);
-        renderHistoryList(historyFiltered, historySelectedDate, { total: currentHistoryIncidents.length });
-        setMapMarkers(historyFiltered, { fit: false, mode: 'history' });
+        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
+        const offset = (historyPage - 1) * historyPageSize;
+        let pageData;
+        if (currentSort === 'urgency') {
+          const sortedAll = sortIncidents(historyFiltered);
+          pageData = sortedAll.slice(offset, offset + historyPageSize);
+        } else {
+          pageData = historyFiltered;
+        }
+        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
+        setMapMarkers(pageData, { fit: false, mode: 'history' });
       } else if (liveVisible) {
-        const filtered = getFilteredIncidents(currentIncidents, filter);
+        const filtered = getFilteredIncidents(currentIncidents);
         renderIncidentList(filtered);
         setMapMarkers(filtered, { fit: false, mode: 'live' });
       }
@@ -1049,24 +1199,47 @@
     async function loadHistory(date) {
       try {
         const offset = (historyPage - 1) * historyPageSize;
-        const url = date
-          ? `api/incidents/history?date=${date}&limit=${historyPageSize}&offset=${offset}`
-          : `api/incidents/history?limit=${historyPageSize}&offset=${offset}`;
-        const response = await fetch(url);
+        const baseUrl = date
+          ? `api/incidents/history?date=${date}`
+          : `api/incidents/history`;
+        const pageUrl = `${baseUrl}&limit=${historyPageSize}&offset=${offset}`;
+        const response = await fetch(pageUrl);
         const data = await response.json();
 
-        currentHistoryIncidents = Array.isArray(data.incidents) ? data.incidents : [];
-        historyTotal = Number(data.total || 0);
+        let incidents = Array.isArray(data.incidents) ? data.incidents : [];
+        let total = Number(data.total || 0);
+
+        if (currentSort === 'urgency' && total > incidents.length) {
+          const fullUrl = `${baseUrl}&limit=${total}&offset=0`;
+          const fullResponse = await fetch(fullUrl);
+          const fullData = await fullResponse.json();
+          incidents = Array.isArray(fullData.incidents) ? fullData.incidents : incidents;
+          total = Number(fullData.total || total);
+        }
+
+        currentHistoryIncidents = incidents;
+        historyTotal = total;
         // Only update shared filter visibility from History when the History tab is visible.
         const historyPanel = document.getElementById('history-panel');
         const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
         if (historyVisible) {
           updateFilterButtonVisibility(currentHistoryIncidents);
         }
-        const filtered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
+        const filteredAll = getFilteredIncidents(currentHistoryIncidents, currentFilter);
+        
+        // For urgency sort: sort ALL incidents by urgency first, THEN paginate
+        let filtered;
+        if (currentSort === 'urgency') {
+          const sortedAll = sortIncidents(filteredAll);
+          filtered = sortedAll.slice(offset, offset + historyPageSize);
+        } else {
+          filtered = filteredAll;
+        }
+        
         updateHistoryCount(historyTotal, date);
         updateHistoryPagination();
-        renderHistoryList(filtered, date, { total: historyTotal });
+        // Pass skipSort flag so we don't re-sort already-sorted urgency data
+        renderHistoryList(filtered, date, { total: historyTotal, skipSort: currentSort === 'urgency' });
 
         // Replace map markers with history results when History tab is active
         if (historyVisible) {
@@ -1107,12 +1280,12 @@
       pagination.classList.toggle('hidden', totalPages <= 1);
     }
 
-    function renderHistoryList(incidents, date, { total = 0 } = {}) {
+    function renderHistoryList(incidents, date, { total = 0, skipSort = false } = {}) {
       const listEl = document.getElementById('history-list');
       const dateLabel = date
         ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
         : 'selected date';
-      const sorted = sortIncidents(incidents);
+      const sorted = skipSort ? incidents : sortIncidents(incidents);
 
       if (total === 0) {
         listEl.innerHTML = `
@@ -1127,13 +1300,24 @@
       }
 
       if (sorted.length === 0) {
-        const filterLabelStr = currentFilter === 'all' ? 'incidents' : `${filterLabel(currentFilter)} incidents`;
+        const hasAgencyFilter = currentFilter !== 'all';
+        const hasUrgencyFilter = currentUrgencyFilter !== 'all';
+        
+        let filterLabelStr = 'incidents';
+        if (hasAgencyFilter && hasUrgencyFilter) {
+          filterLabelStr = `${urgencyLabel(currentUrgencyFilter)} ${filterLabel(currentFilter)} incidents`;
+        } else if (hasAgencyFilter) {
+          filterLabelStr = `${filterLabel(currentFilter)} incidents`;
+        } else if (hasUrgencyFilter) {
+          filterLabelStr = `${urgencyLabel(currentUrgencyFilter)} incidents`;
+        }
+        
         listEl.innerHTML = `
           <div class="empty-state">
             <div class="icon">📋</div>
             <p>No ${filterLabelStr} for</p>
             <p style="font-size: 12px; margin-top: 6px; color: var(--text); font-weight: 600;">${dateLabel}</p>
-            <p style="font-size: 11px; margin-top: 10px;">Try another filter or date.</p>
+            <p style="font-size: 11px; margin-top: 10px;">Try another filter combination or date.</p>
           </div>
         `;
         return;
@@ -1326,10 +1510,16 @@
     const historyPrev = document.getElementById('history-prev');
     const historyNext = document.getElementById('history-next');
 
+    function scrollHistoryListToTop() {
+      const historyList = document.getElementById('history-list');
+      if (historyList) historyList.scrollTop = 0;
+    }
+
     historyPrev?.addEventListener('click', () => {
       if (historyPage <= 1) return;
       historyPage -= 1;
       loadHistory(historySelectedDate);
+      scrollHistoryListToTop();
     });
 
     historyNext?.addEventListener('click', () => {
@@ -1337,6 +1527,7 @@
       if (historyPage >= totalPages) return;
       historyPage += 1;
       loadHistory(historySelectedDate);
+      scrollHistoryListToTop();
     });
 
     // Close date picker when clicking outside of it
@@ -1370,16 +1561,23 @@
           // Live tab: make filter visibility reflect the active feed immediately
           updateFilterButtonVisibility(currentIncidents);
           // Render live markers immediately from the last-known active incidents
-          setMapMarkers(getFilteredIncidents(currentIncidents, currentFilter), { fit: false, mode: 'live' });
+          setMapMarkers(getFilteredIncidents(currentIncidents), { fit: false, mode: 'live' });
           toggleDatePicker(false);
         }
       });
     });
     
-    // Filter button handlers
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    // Agency filter button handlers
+    document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        applyFilter(btn.dataset.filter);
+        applyAgencyFilter(btn.dataset.filter);
+      });
+    });
+
+    // Urgency filter button handlers
+    document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyUrgencyFilter(btn.dataset.urgency);
       });
     });
 
@@ -1399,10 +1597,18 @@
       const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
 
       if (historyVisible) {
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents, currentFilter);
-        renderHistoryList(historyFiltered, historySelectedDate, { total: currentHistoryIncidents.length });
+        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
+        const offset = (historyPage - 1) * historyPageSize;
+        let pageData;
+        if (currentSort === 'urgency') {
+          const sortedAll = sortIncidents(historyFiltered);
+          pageData = sortedAll.slice(offset, offset + historyPageSize);
+        } else {
+          pageData = historyFiltered;
+        }
+        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
       } else if (liveVisible) {
-        const filtered = getFilteredIncidents(currentIncidents, currentFilter);
+        const filtered = getFilteredIncidents(currentIncidents);
         renderIncidentList(filtered);
       }
     }

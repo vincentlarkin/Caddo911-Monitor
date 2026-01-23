@@ -415,6 +415,7 @@
     .incident-card.sev-high::before { background: var(--red); }
     .incident-card.sev-medium::before { background: var(--amber); }
     .incident-card.sev-low::before { background: var(--blue); }
+    .incident-card.sev-service::before { background: var(--green); }
     .incident-card.sev-medical::before {
       background: repeating-linear-gradient(
         135deg,
@@ -520,6 +521,7 @@
     .incident-agency.sev-high { background: rgba(255, 59, 59, 0.18); color: var(--red); }
     .incident-agency.sev-medium { background: rgba(255, 184, 48, 0.18); color: var(--amber); }
     .incident-agency.sev-low { background: rgba(59, 139, 255, 0.18); color: var(--blue); }
+    .incident-agency.sev-service { background: rgba(0, 255, 136, 0.18); color: var(--green); }
     .incident-agency.sev-medical {
       background: repeating-linear-gradient(
         135deg,
@@ -548,30 +550,41 @@
       flex-wrap: wrap;
       align-items: flex-start;
       gap: 8px;
-      padding: 10px 12px;
+      padding: 10px 7px;
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
 
+    .filter-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1 1 260px;
+      min-width: 0;
+    }
+
     .filter-group {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      gap: 5px;
       align-items: center;
-      flex: 1 1 260px;
-      min-width: 0;
+    }
+
+    .filter-group[data-filter-type="urgency"] {
+      padding-top: 2px;
     }
 
     .filter-meta {
       display: flex;
       flex-direction: column;
-      
+      gap: 6px;
+      margin-left: auto;
     }
     
     .history-count {
       width: 100%;
-      padding: 6px 12px;
+      padding: 6px 10px;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.12);
       background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
@@ -581,20 +594,21 @@
       letter-spacing: 0.5px;
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       white-space: nowrap;
       box-shadow: 0 0 18px rgba(0, 0, 0, 0.22);
+      line-height: 1;
     }
 
     .history-count-label {
-      font-size: 9px;
+      font-size: clamp(8px, 1.1vw, 9px);
       color: var(--text-dim);
       text-transform: uppercase;
       letter-spacing: 1px;
     }
 
     .history-count strong {
-      font-size: 12px;
+      font-size: clamp(10px, 1.3vw, 12px);
       color: var(--text);
     }
 
@@ -633,13 +647,14 @@
     .filter-btn {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 6px 9px;
+      justify-content: center;
+      gap: 0;
+      padding: 4px;
       font-size: 10px;
       font-family: 'JetBrains Mono', monospace;
       background: linear-gradient(180deg, rgba(26, 26, 37, 0.95), rgba(26, 26, 37, 0.65));
       border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 10px;
+      border-radius: 8px;
       color: var(--text-dim);
       cursor: pointer;
       transition: all 0.2s ease;
@@ -660,13 +675,13 @@
     }
     
     .filter-logo {
-      width: 30px;
-      height: 30px;
-      border-radius: 10px;
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
       object-fit: contain;
       background: rgba(0,0,0,0.25);
       border: 1px solid rgba(255, 255, 255, 0.10);
-      padding: 3px;
+      padding: 2px;
     }
 
     .filter-btn.active .filter-logo {
@@ -681,6 +696,104 @@
 
     .filter-btn.empty:hover {
       opacity: 0.8;
+    }
+
+    /* Urgency/Severity filter buttons */
+    .urgency-btn {
+      min-width: 30px;
+      height: 30px;
+      padding: 4px;
+    }
+
+    .urgency-btn[data-urgency="all"] {
+      font-size: 9px;
+      padding: 4px 8px;
+    }
+
+    .urgency-dot {
+      display: block;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .urgency-btn:hover .urgency-dot {
+      transform: scale(1.15);
+    }
+
+    .urgency-btn.active .urgency-dot {
+      transform: scale(1.1);
+    }
+
+    /* Urgency dot colors */
+    .urgency-high .urgency-dot {
+      background: var(--red);
+      box-shadow: 0 0 8px rgba(255, 59, 59, 0.5);
+    }
+
+    .urgency-medical .urgency-dot {
+      background: repeating-linear-gradient(
+        135deg,
+        rgba(255, 59, 59, 0.85) 0 4px,
+        rgba(255, 255, 255, 0.6) 4px 8px
+      );
+      box-shadow: 0 0 8px rgba(255, 59, 59, 0.4);
+    }
+
+    .urgency-medium .urgency-dot {
+      background: var(--amber);
+      box-shadow: 0 0 8px rgba(255, 184, 48, 0.5);
+    }
+
+    .urgency-low .urgency-dot {
+      background: var(--blue);
+      box-shadow: 0 0 8px rgba(59, 139, 255, 0.5);
+    }
+
+    .urgency-service .urgency-dot {
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+    }
+
+    .urgency-custody .urgency-dot {
+      background: repeating-linear-gradient(
+        135deg,
+        rgba(154, 160, 170, 0.9) 0 4px,
+        rgba(255, 255, 255, 0.5) 4px 8px
+      );
+      box-shadow: 0 0 8px rgba(154, 160, 170, 0.4);
+    }
+
+    /* Active state for urgency buttons */
+    .urgency-high.active {
+      background: rgba(255, 59, 59, 0.16);
+      border-color: rgba(255, 59, 59, 0.55);
+    }
+
+    .urgency-medical.active {
+      background: rgba(255, 59, 59, 0.12);
+      border-color: rgba(255, 59, 59, 0.45);
+    }
+
+    .urgency-medium.active {
+      background: rgba(255, 184, 48, 0.16);
+      border-color: rgba(255, 184, 48, 0.55);
+    }
+
+    .urgency-low.active {
+      background: rgba(59, 139, 255, 0.16);
+      border-color: rgba(59, 139, 255, 0.55);
+    }
+
+    .urgency-service.active {
+      background: rgba(0, 255, 136, 0.16);
+      border-color: rgba(0, 255, 136, 0.55);
+    }
+
+    .urgency-custody.active {
+      background: rgba(154, 160, 170, 0.16);
+      border-color: rgba(154, 160, 170, 0.55);
     }
 
     .sort-control {
