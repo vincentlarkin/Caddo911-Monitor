@@ -332,6 +332,8 @@
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--border);
+      align-items: center;
+      gap: 6px;
     }
     
     .tab {
@@ -347,6 +349,25 @@
       color: var(--text-dim);
       transition: all 0.3s ease;
       position: relative;
+    }
+
+    .panel-toggle {
+      display: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--bg-card);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex: 0 0 auto;
+    }
+
+    .panel-toggle:hover {
+      border-color: rgba(255, 59, 59, 0.55);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.12);
     }
     
     .tab:hover {
@@ -1463,6 +1484,47 @@
         min-height: 100dvh;
       }
 
+      .main-container {
+        display: block;
+        height: calc(100dvh - var(--header-height));
+      }
+
+      .map-container {
+        height: 100%;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 52vh;
+        max-height: 65vh;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.45);
+        z-index: 2000;
+        overflow: hidden;
+        transition: height 0.2s ease;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      .sidebar.collapsed {
+        height: 56px;
+      }
+
+      .sidebar.collapsed .filter-bar,
+      .sidebar.collapsed #live-panel,
+      .sidebar.collapsed #history-panel,
+      .sidebar.collapsed .history-controls {
+        display: none;
+      }
+
+      .sidebar.collapsed .tabs {
+        border-bottom: none;
+      }
+
       .header {
         padding: 14px 16px 10px;
         flex-direction: column;
@@ -1517,6 +1579,16 @@
         font-size: 12px;
       }
 
+      .tabs {
+        padding: 6px 8px;
+      }
+
+      .panel-toggle {
+        display: grid;
+        place-items: center;
+        font-size: 14px;
+      }
+
       .map-theme-toggle {
         width: 36px;
         height: 30px;
@@ -1530,10 +1602,6 @@
 
       .legend-container {
         display: none;
-      }
-
-      .main-container {
-        grid-template-rows: minmax(32vh, 38vh) 1fr;
       }
 
       .tab {

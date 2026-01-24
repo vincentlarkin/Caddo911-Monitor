@@ -147,6 +147,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="live">Live</button>
         <button class="tab" data-tab="history">History</button>
+        <button class="panel-toggle" id="panel-toggle" type="button" aria-expanded="true" aria-label="Toggle incidents panel" title="Collapse incidents">▼</button>
       </div>
 
       <!-- Shared filters (apply to Live + History lists) -->
@@ -1648,6 +1649,49 @@
       if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
       toggleSortMenu(false);
     });
+
+    // Mobile incidents bottom sheet
+    const sidebar = document.querySelector('.sidebar');
+    const panelToggle = document.getElementById('panel-toggle');
+    const mobileQuery = window.matchMedia('(max-width: 720px)');
+
+    function setMobilePanelOpen(open) {
+      if (!sidebar) return;
+      sidebar.classList.toggle('collapsed', !open);
+      document.body.classList.toggle('mobile-incidents-open', open);
+      if (panelToggle) {
+        panelToggle.setAttribute('aria-expanded', String(open));
+        panelToggle.textContent = open ? '▼' : '▲';
+        panelToggle.title = open ? 'Collapse incidents' : 'Expand incidents';
+      }
+    }
+
+    function syncMobilePanel() {
+      const isMobile = mobileQuery.matches;
+      document.body.classList.toggle('mobile-view', isMobile);
+      if (!isMobile) {
+        sidebar?.classList.remove('collapsed');
+        document.body.classList.remove('mobile-incidents-open');
+        if (panelToggle) {
+          panelToggle.setAttribute('aria-expanded', 'true');
+          panelToggle.textContent = '▼';
+          panelToggle.title = 'Collapse incidents';
+        }
+        return;
+      }
+      if (!document.body.classList.contains('mobile-incidents-open')) {
+        setMobilePanelOpen(false);
+      }
+    }
+
+    panelToggle?.addEventListener('click', () => {
+      const isCollapsed = sidebar?.classList.contains('collapsed');
+      setMobilePanelOpen(Boolean(isCollapsed));
+    });
+
+    mobileQuery.addEventListener('change', syncMobilePanel);
+    window.addEventListener('load', syncMobilePanel);
+    syncMobilePanel();
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
