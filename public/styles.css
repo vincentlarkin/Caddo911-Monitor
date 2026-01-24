@@ -1448,7 +1448,7 @@
     @media (max-width: 900px) {
       .main-container {
         grid-template-columns: 1fr;
-        grid-template-rows: minmax(42vh, 48vh) 1fr;
+        grid-template-rows: minmax(36vh, 44vh) 1fr;
         height: calc(100dvh - var(--header-height));
       }
       
@@ -1532,9 +1532,18 @@
         display: none;
       }
 
+      .main-container {
+        grid-template-rows: minmax(32vh, 38vh) 1fr;
+      }
+
+      .tab {
+        padding: 10px;
+        font-size: 11px;
+      }
+
       .filter-bar {
         gap: 6px;
-        padding: 8px 6px;
+        padding: 6px 6px;
       }
 
       .filter-logo {
@@ -1581,6 +1590,14 @@
       .incident-meta {
         flex-wrap: wrap;
         gap: 6px;
+      }
+
+      .history-controls {
+        padding: 10px 10px 8px;
+      }
+
+      .date-input {
+        padding: 10px 12px;
       }
 
       .date-picker {
