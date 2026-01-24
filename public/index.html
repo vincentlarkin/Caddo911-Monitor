@@ -7,6 +7,10 @@
   <link rel="icon" href="images/caddo911logo.png" type="image/png">
   <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
   <link rel="apple-touch-icon" href="images/caddo911logo.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta property="og:title" content="Caddo 911 Live Feed">
   <meta property="og:description" content="Live emergency incident map for Caddo Parish, Louisiana.">
   <meta property="og:image" content="images/caddo911logo.png">
@@ -30,19 +34,19 @@
       </div>
     </div>
     <div class="status-bar">
-      <div class="status-item">
+      <div class="status-item status-live">
         <span class="status-label">Status</span>
         <span class="status-value live"><span class="live-dot"></span>LIVE</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-update">
         <span class="status-label">Last Update</span>
         <span class="status-value" id="last-update">--:--</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-active">
         <span class="status-label">Active</span>
         <span class="status-value" id="active-count">0</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-theme">
         <span class="status-label">Map Theme</span>
         <button class="map-theme-toggle" id="map-theme-toggle" aria-pressed="true" title="Toggle map theme">
           <span class="map-theme-icon" aria-hidden="true">☀️</span>
@@ -384,6 +388,12 @@
     const legendPanel = document.getElementById('map-legend');
     const legendCollapse = document.getElementById('legend-collapse');
     let legendExpandedHeight = null;
+
+    function updateHeaderHeight() {
+      const header = document.querySelector('.header');
+      if (!header) return;
+      document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
+    }
     
     function measureLegendExpandedHeight() {
       if (!legendPanel) return;
@@ -415,6 +425,7 @@
     
     // Initial measurement (expanded state), then optionally collapse for smaller screens
     measureLegendExpandedHeight();
+    updateHeaderHeight();
     if (window.innerWidth < 960) setLegendCollapsed(true);
     
     legendCollapse?.addEventListener('click', () => {
@@ -424,10 +435,12 @@
     
     // Keep measurements accurate if the layout changes
     window.addEventListener('resize', () => {
+      updateHeaderHeight();
       if (!legendContainer?.classList.contains('collapsed')) {
         measureLegendExpandedHeight();
       }
     });
+    window.addEventListener('load', updateHeaderHeight);
     
     // Add zoom control to bottom right
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -1635,6 +1648,14 @@
       if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
       toggleSortMenu(false);
     });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch((error) => {
+          console.warn('Service worker registration failed:', error);
+        });
+      });
+    }
     
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });

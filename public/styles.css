@@ -17,6 +17,7 @@
       --medical: #ff3b6b;
       --police: #3b8bff;
       --sheriff: #9b59b6;
+      --header-height: 100px;
     }
     
     * {
@@ -188,7 +189,8 @@
     .main-container {
       display: grid;
       grid-template-columns: 1fr 400px;
-      height: calc(100vh - 100px);
+      height: calc(100vh - var(--header-height));
+      min-height: 0;
     }
     
     .map-container {
@@ -1078,6 +1080,9 @@
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      max-height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
     
     .date-input {
@@ -1144,6 +1149,8 @@
       border-radius: 14px;
       padding: 12px;
       backdrop-filter: blur(10px);
+      max-height: min(60vh, 360px);
+      overflow-y: auto;
     }
 
     .history-pagination {
@@ -1441,12 +1448,169 @@
     @media (max-width: 900px) {
       .main-container {
         grid-template-columns: 1fr;
-        grid-template-rows: 50vh 1fr;
+        grid-template-rows: minmax(42vh, 48vh) 1fr;
+        height: calc(100dvh - var(--header-height));
       }
       
       .sidebar {
         border-left: none;
         border-top: 1px solid var(--border);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        min-height: 100dvh;
+      }
+
+      .header {
+        padding: 14px 16px 10px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+
+      .logo {
+        gap: 10px;
+      }
+
+      .logo-icon {
+        width: 44px;
+        height: 44px;
+      }
+
+      .logo-text h1 {
+        font-size: 20px;
+        letter-spacing: 1px;
+      }
+
+      .logo-text p {
+        font-size: 9px;
+        letter-spacing: 2px;
+      }
+
+      .status-bar {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 10px 12px;
+        justify-content: space-between;
+      }
+
+      .status-item {
+        align-items: flex-start;
+      }
+
+      .status-item.status-live {
+        display: none;
+      }
+
+      .status-label {
+        font-size: 8px;
+        letter-spacing: 0.5px;
+      }
+
+      .status-value {
+        font-size: 14px;
+      }
+
+      .status-item.status-update .status-value {
+        font-size: 12px;
+      }
+
+      .map-theme-toggle {
+        width: 36px;
+        height: 30px;
+      }
+
+      .info-btn {
+        width: 30px;
+        height: 30px;
+        margin-left: 0;
+      }
+
+      .legend-container {
+        display: none;
+      }
+
+      .filter-bar {
+        gap: 6px;
+        padding: 8px 6px;
+      }
+
+      .filter-logo {
+        width: 22px;
+        height: 22px;
+      }
+
+      .incident-list {
+        padding: 8px;
+      }
+
+      .incident-card {
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+
+      .incident-header {
+        margin-bottom: 6px;
+      }
+
+      .incident-type {
+        font-size: 12px;
+      }
+
+      .incident-time {
+        font-size: 10px;
+        padding: 2px 6px;
+      }
+
+      .incident-location {
+        font-size: 10px;
+        margin-bottom: 4px;
+      }
+
+      .incident-agency {
+        padding: 2px 6px;
+        font-size: 9px;
+      }
+
+      .incident-units {
+        font-size: 9px;
+      }
+
+      .incident-meta {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .date-picker {
+        padding: 10px;
+        max-height: 55vh;
+      }
+
+      .dp-grid {
+        gap: 4px;
+      }
+
+      .dp-day {
+        height: 30px;
+        font-size: 11px;
+        border-radius: 9px;
+      }
+
+      .dp-dow {
+        font-size: 8px;
+        padding: 3px 0 5px;
+      }
+
+      .dp-nav {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+      }
+
+      .dp-month {
+        font-size: 11px;
       }
     }
   
