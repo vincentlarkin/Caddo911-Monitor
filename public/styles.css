@@ -910,6 +910,35 @@
       font-weight: 600;
     }
     
+    /* Settings Button */
+    .settings-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-left: 15px;
+      display: grid;
+      place-items: center;
+    }
+    
+    .settings-btn:hover {
+      background: var(--bg-dark);
+      border-color: var(--text-dim);
+      color: var(--text);
+    }
+    
+    .settings-btn:hover svg {
+      transform: rotate(45deg);
+    }
+    
+    .settings-btn svg {
+      transition: transform 0.3s ease;
+    }
+
     /* Info Button */
     .info-btn {
       width: 32px;
@@ -923,7 +952,7 @@
       font-style: italic;
       cursor: pointer;
       transition: all 0.2s ease;
-      margin-left: 15px;
+      margin-left: 8px;
     }
     
     .info-btn:hover {
@@ -932,6 +961,131 @@
       color: white;
     }
     
+    /* Settings Modal */
+    .settings-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+    }
+    
+    .settings-modal.open {
+      display: flex;
+    }
+    
+    .settings-modal .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+    }
+    
+    .settings-modal .settings-dialog {
+      position: relative;
+      width: min(420px, 90vw);
+      background: linear-gradient(180deg, rgba(18, 18, 26, 0.98), rgba(18, 18, 26, 0.95));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 22px 18px;
+      box-shadow: 0 12px 60px rgba(0, 0, 0, 0.55);
+      z-index: 1;
+      animation: slideIn 0.12s ease-out;
+    }
+    
+    .settings-content h3 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 16px;
+      color: var(--text);
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .setting-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    
+    .setting-item:last-child {
+      border-bottom: none;
+    }
+    
+    .setting-label {
+      flex: 1;
+      cursor: pointer;
+    }
+    
+    .setting-title {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    
+    .setting-desc {
+      display: block;
+      font-size: 11px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    
+    /* Toggle Switch */
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      transition: all 0.2s ease;
+    }
+    
+    .toggle-slider::before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      transition: all 0.2s ease;
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background: rgba(0, 255, 136, 0.2);
+      border-color: rgba(0, 255, 136, 0.5);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(22px);
+      background: var(--green);
+    }
+    
+    .toggle-switch input:focus + .toggle-slider {
+      box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.2);
+    }
+
     /* Info Modal */
     .info-modal {
       position: fixed;
@@ -1093,7 +1247,16 @@
       text-align: center;
       border-top: 1px solid var(--border);
       padding-top: 12px;
+      margin-bottom: 4px !important;
+    }
+    
+    .info-version {
+      font-size: 9px;
+      color: var(--text-dim);
+      opacity: 0.6;
+      text-align: center;
       margin-bottom: 0 !important;
+      letter-spacing: 0.5px;
     }
     
     .history-controls {
@@ -1439,6 +1602,44 @@
       color: var(--text);
       border-bottom-color: rgba(255, 59, 59, 0.6);
     }
+    
+    .popup-goto-btn {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: rgba(59, 139, 255, 0.18);
+      border: 1px solid rgba(59, 139, 255, 0.45);
+      border-radius: 8px;
+      color: var(--blue);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .popup-goto-btn:hover {
+      background: rgba(59, 139, 255, 0.28);
+      border-color: rgba(59, 139, 255, 0.65);
+      color: var(--text);
+    }
+    
+    /* Highlighted incident card (when navigating from map marker) */
+    .incident-card.highlighted {
+      border-color: rgba(59, 139, 255, 1) !important;
+      box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.7), 0 0 25px rgba(59, 139, 255, 0.5), inset 0 0 20px rgba(59, 139, 255, 0.1) !important;
+      animation: card-highlight-pulse 1s ease-in-out 3;
+      background: linear-gradient(135deg, rgba(59, 139, 255, 0.15), rgba(59, 139, 255, 0.05)) !important;
+    }
+    
+    @keyframes card-highlight-pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.7), 0 0 25px rgba(59, 139, 255, 0.5), inset 0 0 20px rgba(59, 139, 255, 0.1);
+      }
+      50% {
+        box-shadow: 0 0 0 5px rgba(59, 139, 255, 0.9), 0 0 40px rgba(59, 139, 255, 0.7), inset 0 0 30px rgba(59, 139, 255, 0.15);
+      }
+    }
 
     /* Improve street-name readability WITHOUT switching to a light basemap:
        we render labels as a separate tile layer and boost only that layer. */
@@ -1594,10 +1795,21 @@
         height: 30px;
       }
 
+      .settings-btn {
+        width: 30px;
+        height: 30px;
+        margin-left: auto;
+      }
+      
+      .settings-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
       .info-btn {
         width: 30px;
         height: 30px;
-        margin-left: 0;
+        margin-left: 6px;
       }
 
       .legend-container {
