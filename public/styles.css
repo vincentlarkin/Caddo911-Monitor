@@ -107,6 +107,7 @@
       letter-spacing: 3px;
       text-transform: uppercase;
     }
+
     
     .status-bar {
       display: flex;
@@ -1239,6 +1240,14 @@
     
     .info-link svg {
       flex-shrink: 0;
+    }
+
+    .info-link-icon {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(255, 59, 59, 0.2));
     }
     
     .info-credit {

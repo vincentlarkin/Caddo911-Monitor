@@ -497,6 +497,14 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
 def _clean_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
+def _normalize_location_token(value: str | None) -> str:
+    return _clean_ws(value or "").lower()
+
+def _is_unknown_location(street: str | None, cross_streets: str | None) -> bool:
+    street_norm = _normalize_location_token(street)
+    cross_norm = _normalize_location_token(cross_streets)
+    return (street_norm in ("", "unknown")) and (cross_norm in ("", "unknown"))
+
 def _split_cross_tokens(text: str | None) -> list[str]:
     """
     Split a "cross streets" field into individual street tokens.
@@ -562,11 +570,9 @@ def geocode_address(street, cross_streets, municipality):
     """
     import random
     
-    # Skip geocoding entirely if the location is just "Unknown"
-    street_raw = _clean_ws(street or "").lower()
-    cross_raw = _clean_ws(cross_streets or "").lower()
-    if street_raw == 'unknown' and (not cross_raw or cross_raw == 'unknown'):
-        log(f"  [--] skipped | location is 'Unknown'")
+    # Skip geocoding entirely if the location is missing/unknown.
+    if _is_unknown_location(street, cross_streets):
+        log("  [--] skipped | location is empty/unknown")
         return {
             'lat': None,
             'lng': None,

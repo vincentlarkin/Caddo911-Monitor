@@ -101,6 +101,10 @@
         </div>
         
         <div class="info-links">
+          <a href="https://ias.ecc.caddo911.com/All_ActiveEvents.aspx" target="_blank" class="info-link" rel="noopener noreferrer">
+            <img src="images/caddo911.png" alt="Caddo 911 Emergency Communications Center" class="info-link-icon">
+            Caddo911 Official Website
+          </a>
           <a href="https://github.com/vincentlarkin/Caddo911-Monitor" target="_blank" class="info-link">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             GitHub
@@ -488,6 +492,7 @@
     let historyPage = 1;
     const historyPageSize = 35;
     let historyTotal = 0;
+    let historyHasAllIncidents = false;
     
     // Agency color mapping
     function getAgencyColor(agency) {
@@ -740,6 +745,19 @@
       return incidents.filter(inc => matchesFilters(inc, af, uf));
     }
 
+    function getHistoryPageData(incidents) {
+      const filtered = getFilteredIncidents(incidents, currentFilter, currentUrgencyFilter);
+      if (!historyHasAllIncidents) {
+        if (currentSort === 'urgency') {
+          return { pageData: sortIncidents(filtered), skipSort: true };
+        }
+        return { pageData: filtered, skipSort: true };
+      }
+      const sortedAll = sortIncidents(filtered);
+      const offset = (historyPage - 1) * historyPageSize;
+      return { pageData: sortedAll.slice(offset, offset + historyPageSize), skipSort: true };
+    }
+
     function _incidentTimeValue(incident) {
       const raw = incident?.time;
       if (raw != null && String(raw).trim() !== '') {
@@ -979,12 +997,25 @@
       return marker;
     }
 
+    function _normalizeLocationToken(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function isUnknownLocation(incident) {
+      const street = _normalizeLocationToken(incident?.street);
+      const cross = _normalizeLocationToken(incident?.cross_streets);
+      const streetUnknown = street === '' || street === 'unknown';
+      const crossUnknown = cross === '' || cross === 'unknown';
+      return streetUnknown && crossUnknown;
+    }
+
     // Check if an incident has a valid, mappable location (not "Unknown")
     function hasValidLocation(incident) {
-      if (!incident || incident.latitude == null || incident.longitude == null) return false;
-      // Skip incidents where street is literally "Unknown" (case-insensitive)
-      const street = (incident.street || '').trim().toLowerCase();
-      if (street === 'unknown') return false;
+      if (!incident) return false;
+      const lat = Number(incident.latitude);
+      const lng = Number(incident.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (isUnknownLocation(incident)) return false;
       return true;
     }
 
@@ -1035,11 +1066,12 @@
     function createIncidentCard(incident, isNew = false) {
       const sev = getSeverity(incident);
       const sevClass = getSeverityClass(sev);
+      const hasLocation = hasValidLocation(incident);
+      const clickAttr = hasLocation ? ` onclick="focusIncident(${incident.latitude}, ${incident.longitude})"` : '';
       
       return `
         <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}" 
-             data-id="${incident.id}"
-             onclick="focusIncident(${incident.latitude}, ${incident.longitude})">
+             data-id="${incident.id}"${clickAttr}>
           <div class="incident-header">
             <span class="incident-type">${incident.description}</span>
             <span class="incident-time">${formatTime(incident.time)}</span>
@@ -1057,7 +1089,10 @@
     
     // Focus on incident on map
     window.focusIncident = function(lat, lng) {
-      map.flyTo([lat, lng], 15, { duration: 0.5 });
+      const nLat = Number(lat);
+      const nLng = Number(lng);
+      if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) return;
+      map.flyTo([nLat, nLng], 15, { duration: 0.5 });
     };
     
     // Settings modal
@@ -1230,16 +1265,8 @@
       }
 
       if (historyVisible) {
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
-        const offset = (historyPage - 1) * historyPageSize;
-        let pageData;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(historyFiltered);
-          pageData = sortedAll.slice(offset, offset + historyPageSize);
-        } else {
-          pageData = historyFiltered;
-        }
-        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
+        renderHistoryList(pageData, historySelectedDate, { total: historyTotal, skipSort });
         
         // Use showAllHistoryOnMap setting for map markers
         if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
@@ -1374,6 +1401,7 @@
           incidents = Array.isArray(fullData.incidents) ? fullData.incidents : incidents;
           total = Number(fullData.total || total);
         }
+        historyHasAllIncidents = incidents.length >= total;
 
         currentHistoryIncidents = incidents;
         historyTotal = total;
@@ -1389,21 +1417,12 @@
         if (historyVisible) {
           updateFilterButtonVisibility(currentHistoryIncidents);
         }
-        const filteredAll = getFilteredIncidents(currentHistoryIncidents, currentFilter);
-        
-        // For urgency sort: sort ALL incidents by urgency first, THEN paginate
-        let filtered;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(filteredAll);
-          filtered = sortedAll.slice(offset, offset + historyPageSize);
-        } else {
-          filtered = filteredAll;
-        }
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
         
         updateHistoryCount(historyTotal, date);
         updateHistoryPagination();
         // Pass skipSort flag so we don't re-sort already-sorted urgency data
-        renderHistoryList(filtered, date, { total: historyTotal, skipSort: currentSort === 'urgency' });
+        renderHistoryList(pageData, date, { total: historyTotal, skipSort });
 
         // Replace map markers with history results when History tab is active
         if (historyVisible) {
@@ -1413,7 +1432,7 @@
             setMapMarkers(allFiltered, { fit: true, mode: 'history' });
           } else {
             // Show only current page
-            setMapMarkers(filtered, { fit: true, mode: 'history' });
+            setMapMarkers(pageData, { fit: true, mode: 'history' });
           }
         }
       } catch (error) {
@@ -1775,16 +1794,8 @@
           return;
         }
         
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
-        const offset = (historyPage - 1) * historyPageSize;
-        let pageData;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(historyFiltered);
-          pageData = sortedAll.slice(offset, offset + historyPageSize);
-        } else {
-          pageData = historyFiltered;
-        }
-        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
+        renderHistoryList(pageData, historySelectedDate, { total: historyTotal, skipSort });
         
         // Also refresh map markers (but don't change what's shown based on sort - that's controlled by setting)
         if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
