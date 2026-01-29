@@ -17,6 +17,7 @@
       --medical: #ff3b6b;
       --police: #3b8bff;
       --sheriff: #9b59b6;
+      --header-height: 100px;
     }
     
     * {
@@ -106,6 +107,7 @@
       letter-spacing: 3px;
       text-transform: uppercase;
     }
+
     
     .status-bar {
       display: flex;
@@ -188,7 +190,8 @@
     .main-container {
       display: grid;
       grid-template-columns: 1fr 400px;
-      height: calc(100vh - 100px);
+      height: calc(100vh - var(--header-height));
+      min-height: 0;
     }
     
     .map-container {
@@ -330,6 +333,8 @@
     .tabs {
       display: flex;
       border-bottom: 1px solid var(--border);
+      align-items: center;
+      gap: 6px;
     }
     
     .tab {
@@ -345,6 +350,25 @@
       color: var(--text-dim);
       transition: all 0.3s ease;
       position: relative;
+    }
+
+    .panel-toggle {
+      display: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: var(--bg-card);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex: 0 0 auto;
+    }
+
+    .panel-toggle:hover {
+      border-color: rgba(255, 59, 59, 0.55);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.12);
     }
     
     .tab:hover {
@@ -887,6 +911,35 @@
       font-weight: 600;
     }
     
+    /* Settings Button */
+    .settings-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-left: 15px;
+      display: grid;
+      place-items: center;
+    }
+    
+    .settings-btn:hover {
+      background: var(--bg-dark);
+      border-color: var(--text-dim);
+      color: var(--text);
+    }
+    
+    .settings-btn:hover svg {
+      transform: rotate(45deg);
+    }
+    
+    .settings-btn svg {
+      transition: transform 0.3s ease;
+    }
+
     /* Info Button */
     .info-btn {
       width: 32px;
@@ -900,7 +953,7 @@
       font-style: italic;
       cursor: pointer;
       transition: all 0.2s ease;
-      margin-left: 15px;
+      margin-left: 8px;
     }
     
     .info-btn:hover {
@@ -909,6 +962,131 @@
       color: white;
     }
     
+    /* Settings Modal */
+    .settings-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3000;
+    }
+    
+    .settings-modal.open {
+      display: flex;
+    }
+    
+    .settings-modal .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(6px);
+    }
+    
+    .settings-modal .settings-dialog {
+      position: relative;
+      width: min(420px, 90vw);
+      background: linear-gradient(180deg, rgba(18, 18, 26, 0.98), rgba(18, 18, 26, 0.95));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 22px 18px;
+      box-shadow: 0 12px 60px rgba(0, 0, 0, 0.55);
+      z-index: 1;
+      animation: slideIn 0.12s ease-out;
+    }
+    
+    .settings-content h3 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 16px;
+      color: var(--text);
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .setting-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    
+    .setting-item:last-child {
+      border-bottom: none;
+    }
+    
+    .setting-label {
+      flex: 1;
+      cursor: pointer;
+    }
+    
+    .setting-title {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    
+    .setting-desc {
+      display: block;
+      font-size: 11px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    
+    /* Toggle Switch */
+    .toggle-switch {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+    
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      transition: all 0.2s ease;
+    }
+    
+    .toggle-slider::before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      transition: all 0.2s ease;
+    }
+    
+    .toggle-switch input:checked + .toggle-slider {
+      background: rgba(0, 255, 136, 0.2);
+      border-color: rgba(0, 255, 136, 0.5);
+    }
+    
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(22px);
+      background: var(--green);
+    }
+    
+    .toggle-switch input:focus + .toggle-slider {
+      box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.2);
+    }
+
     /* Info Modal */
     .info-modal {
       position: fixed;
@@ -1063,6 +1241,14 @@
     .info-link svg {
       flex-shrink: 0;
     }
+
+    .info-link-icon {
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(255, 59, 59, 0.2));
+    }
     
     .info-credit {
       font-size: 10px;
@@ -1070,7 +1256,16 @@
       text-align: center;
       border-top: 1px solid var(--border);
       padding-top: 12px;
+      margin-bottom: 4px !important;
+    }
+    
+    .info-version {
+      font-size: 9px;
+      color: var(--text-dim);
+      opacity: 0.6;
+      text-align: center;
       margin-bottom: 0 !important;
+      letter-spacing: 0.5px;
     }
     
     .history-controls {
@@ -1078,6 +1273,9 @@
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      max-height: 100%;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
     
     .date-input {
@@ -1144,6 +1342,8 @@
       border-radius: 14px;
       padding: 12px;
       backdrop-filter: blur(10px);
+      max-height: min(60vh, 360px);
+      overflow-y: auto;
     }
 
     .history-pagination {
@@ -1411,6 +1611,44 @@
       color: var(--text);
       border-bottom-color: rgba(255, 59, 59, 0.6);
     }
+    
+    .popup-goto-btn {
+      display: block;
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px 12px;
+      background: rgba(59, 139, 255, 0.18);
+      border: 1px solid rgba(59, 139, 255, 0.45);
+      border-radius: 8px;
+      color: var(--blue);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    
+    .popup-goto-btn:hover {
+      background: rgba(59, 139, 255, 0.28);
+      border-color: rgba(59, 139, 255, 0.65);
+      color: var(--text);
+    }
+    
+    /* Highlighted incident card (when navigating from map marker) */
+    .incident-card.highlighted {
+      border-color: rgba(59, 139, 255, 1) !important;
+      box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.7), 0 0 25px rgba(59, 139, 255, 0.5), inset 0 0 20px rgba(59, 139, 255, 0.1) !important;
+      animation: card-highlight-pulse 1s ease-in-out 3;
+      background: linear-gradient(135deg, rgba(59, 139, 255, 0.15), rgba(59, 139, 255, 0.05)) !important;
+    }
+    
+    @keyframes card-highlight-pulse {
+      0%, 100% {
+        box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.7), 0 0 25px rgba(59, 139, 255, 0.5), inset 0 0 20px rgba(59, 139, 255, 0.1);
+      }
+      50% {
+        box-shadow: 0 0 0 5px rgba(59, 139, 255, 0.9), 0 0 40px rgba(59, 139, 255, 0.7), inset 0 0 30px rgba(59, 139, 255, 0.15);
+      }
+    }
 
     /* Improve street-name readability WITHOUT switching to a light basemap:
        we render labels as a separate tile layer and boost only that layer. */
@@ -1441,12 +1679,244 @@
     @media (max-width: 900px) {
       .main-container {
         grid-template-columns: 1fr;
-        grid-template-rows: 50vh 1fr;
+        grid-template-rows: minmax(36vh, 44vh) 1fr;
+        height: calc(100dvh - var(--header-height));
       }
       
       .sidebar {
         border-left: none;
         border-top: 1px solid var(--border);
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        min-height: 100dvh;
+      }
+
+      .main-container {
+        display: block;
+        height: calc(100dvh - var(--header-height));
+      }
+
+      .map-container {
+        height: 100%;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 52vh;
+        max-height: 65vh;
+        border-left: none;
+        border-top: 1px solid var(--border);
+        border-radius: 16px 16px 0 0;
+        box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.45);
+        z-index: 2000;
+        overflow: hidden;
+        transition: height 0.2s ease;
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      .sidebar.collapsed {
+        height: 56px;
+      }
+
+      .sidebar.collapsed .filter-bar,
+      .sidebar.collapsed #live-panel,
+      .sidebar.collapsed #history-panel,
+      .sidebar.collapsed .history-controls {
+        display: none;
+      }
+
+      .sidebar.collapsed .tabs {
+        border-bottom: none;
+      }
+
+      .header {
+        padding: 14px 16px 10px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+
+      .logo {
+        gap: 10px;
+      }
+
+      .logo-icon {
+        width: 44px;
+        height: 44px;
+      }
+
+      .logo-text h1 {
+        font-size: 20px;
+        letter-spacing: 1px;
+      }
+
+      .logo-text p {
+        font-size: 9px;
+        letter-spacing: 2px;
+      }
+
+      .status-bar {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 10px 12px;
+        justify-content: space-between;
+      }
+
+      .status-item {
+        align-items: flex-start;
+      }
+
+      .status-item.status-live {
+        display: none;
+      }
+
+      .status-label {
+        font-size: 8px;
+        letter-spacing: 0.5px;
+      }
+
+      .status-value {
+        font-size: 14px;
+      }
+
+      .status-item.status-update .status-value {
+        font-size: 12px;
+      }
+
+      .tabs {
+        padding: 6px 8px;
+      }
+
+      .panel-toggle {
+        display: grid;
+        place-items: center;
+        font-size: 14px;
+      }
+
+      .map-theme-toggle {
+        width: 36px;
+        height: 30px;
+      }
+
+      .settings-btn {
+        width: 30px;
+        height: 30px;
+        margin-left: auto;
+      }
+      
+      .settings-btn svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .info-btn {
+        width: 30px;
+        height: 30px;
+        margin-left: 6px;
+      }
+
+      .legend-container {
+        display: none;
+      }
+
+      .tab {
+        padding: 10px;
+        font-size: 11px;
+      }
+
+      .filter-bar {
+        gap: 6px;
+        padding: 6px 6px;
+      }
+
+      .filter-logo {
+        width: 22px;
+        height: 22px;
+      }
+
+      .incident-list {
+        padding: 8px;
+      }
+
+      .incident-card {
+        padding: 8px 10px;
+        margin-bottom: 6px;
+      }
+
+      .incident-header {
+        margin-bottom: 6px;
+      }
+
+      .incident-type {
+        font-size: 12px;
+      }
+
+      .incident-time {
+        font-size: 10px;
+        padding: 2px 6px;
+      }
+
+      .incident-location {
+        font-size: 10px;
+        margin-bottom: 4px;
+      }
+
+      .incident-agency {
+        padding: 2px 6px;
+        font-size: 9px;
+      }
+
+      .incident-units {
+        font-size: 9px;
+      }
+
+      .incident-meta {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .history-controls {
+        padding: 10px 10px 8px;
+      }
+
+      .date-input {
+        padding: 10px 12px;
+      }
+
+      .date-picker {
+        padding: 10px;
+        max-height: 55vh;
+      }
+
+      .dp-grid {
+        gap: 4px;
+      }
+
+      .dp-day {
+        height: 30px;
+        font-size: 11px;
+        border-radius: 9px;
+      }
+
+      .dp-dow {
+        font-size: 8px;
+        padding: 3px 0 5px;
+      }
+
+      .dp-nav {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+      }
+
+      .dp-month {
+        font-size: 11px;
       }
     }
   

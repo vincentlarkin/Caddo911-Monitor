@@ -7,6 +7,10 @@
   <link rel="icon" href="images/caddo911logo.png" type="image/png">
   <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
   <link rel="apple-touch-icon" href="images/caddo911logo.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta property="og:title" content="Caddo 911 Live Feed">
   <meta property="og:description" content="Live emergency incident map for Caddo Parish, Louisiana.">
   <meta property="og:image" content="images/caddo911logo.png">
@@ -30,27 +34,50 @@
       </div>
     </div>
     <div class="status-bar">
-      <div class="status-item">
+      <div class="status-item status-live">
         <span class="status-label">Status</span>
         <span class="status-value live"><span class="live-dot"></span>LIVE</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-update">
         <span class="status-label">Last Update</span>
         <span class="status-value" id="last-update">--:--</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-active">
         <span class="status-label">Active</span>
         <span class="status-value" id="active-count">0</span>
       </div>
-      <div class="status-item">
+      <div class="status-item status-theme">
         <span class="status-label">Map Theme</span>
         <button class="map-theme-toggle" id="map-theme-toggle" aria-pressed="true" title="Toggle map theme">
           <span class="map-theme-icon" aria-hidden="true">☀️</span>
         </button>
       </div>
+      <button class="settings-btn" id="settings-btn" onclick="toggleSettingsPanel()" title="Settings">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
       <button class="info-btn" onclick="toggleInfoPanel()" title="About">i</button>
     </div>
   </header>
+  
+  <div class="settings-modal" id="settings-modal" aria-hidden="true">
+    <div class="modal-backdrop" role="presentation"></div>
+    <div class="modal-dialog settings-dialog" role="dialog" aria-modal="true" aria-label="Settings">
+      <button class="modal-close" type="button" aria-label="Close" id="settings-close">×</button>
+      <div class="settings-content">
+        <h3>Settings</h3>
+        <div class="setting-item">
+          <label class="setting-label" for="setting-show-all-history">
+            <span class="setting-title">Show all incidents on History map</span>
+            <span class="setting-desc">When viewing History, display all incidents for the selected day on the map (not just the current page). Clicking a marker will navigate to its page.</span>
+          </label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="setting-show-all-history" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
   
   <div class="info-modal" id="info-modal" aria-hidden="true">
     <div class="modal-backdrop" role="presentation"></div>
@@ -74,6 +101,10 @@
         </div>
         
         <div class="info-links">
+          <a href="https://ias.ecc.caddo911.com/All_ActiveEvents.aspx" target="_blank" class="info-link" rel="noopener noreferrer">
+            <img src="images/caddo911.png" alt="Caddo 911 Emergency Communications Center" class="info-link-icon">
+            Caddo911 Official Website
+          </a>
           <a href="https://github.com/vincentlarkin/Caddo911-Monitor" target="_blank" class="info-link">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
             GitHub
@@ -88,6 +119,7 @@
           </a>
         </div>
         <p class="info-credit">Created by Vincent Larkin</p>
+        <p class="info-version">v2.8.8d</p>
       </div>
     </div>
   </div>
@@ -143,6 +175,7 @@
       <div class="tabs">
         <button class="tab active" data-tab="live">Live</button>
         <button class="tab" data-tab="history">History</button>
+        <button class="panel-toggle" id="panel-toggle" type="button" aria-expanded="true" aria-label="Toggle incidents panel" title="Collapse incidents">▼</button>
       </div>
 
       <!-- Shared filters (apply to Live + History lists) -->
@@ -384,6 +417,12 @@
     const legendPanel = document.getElementById('map-legend');
     const legendCollapse = document.getElementById('legend-collapse');
     let legendExpandedHeight = null;
+
+    function updateHeaderHeight() {
+      const header = document.querySelector('.header');
+      if (!header) return;
+      document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
+    }
     
     function measureLegendExpandedHeight() {
       if (!legendPanel) return;
@@ -415,6 +454,7 @@
     
     // Initial measurement (expanded state), then optionally collapse for smaller screens
     measureLegendExpandedHeight();
+    updateHeaderHeight();
     if (window.innerWidth < 960) setLegendCollapsed(true);
     
     legendCollapse?.addEventListener('click', () => {
@@ -424,10 +464,12 @@
     
     // Keep measurements accurate if the layout changes
     window.addEventListener('resize', () => {
+      updateHeaderHeight();
       if (!legendContainer?.classList.contains('collapsed')) {
         measureLegendExpandedHeight();
       }
     });
+    window.addEventListener('load', updateHeaderHeight);
     
     // Add zoom control to bottom right
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -450,6 +492,7 @@
     let historyPage = 1;
     const historyPageSize = 35;
     let historyTotal = 0;
+    let historyHasAllIncidents = false;
     
     // Agency color mapping
     function getAgencyColor(agency) {
@@ -702,6 +745,19 @@
       return incidents.filter(inc => matchesFilters(inc, af, uf));
     }
 
+    function getHistoryPageData(incidents) {
+      const filtered = getFilteredIncidents(incidents, currentFilter, currentUrgencyFilter);
+      if (!historyHasAllIncidents) {
+        if (currentSort === 'urgency') {
+          return { pageData: sortIncidents(filtered), skipSort: true };
+        }
+        return { pageData: filtered, skipSort: true };
+      }
+      const sortedAll = sortIncidents(filtered);
+      const offset = (historyPage - 1) * historyPageSize;
+      return { pageData: sortedAll.slice(offset, offset + historyPageSize), skipSort: true };
+    }
+
     function _incidentTimeValue(incident) {
       const raw = incident?.time;
       if (raw != null && String(raw).trim() !== '') {
@@ -903,6 +959,25 @@
       const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
       
       const hasPattern = sev === 'medical' || sev === 'custody';
+      
+      // Build popup content - add "Go to page" link for history mode when showing all incidents
+      let popupHtml = `
+        <div class="popup-content">
+          <div class="popup-title">${incident.description}</div>
+          <div class="popup-detail">📍 ${locationStr}</div>
+          <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
+          <div class="popup-detail">🚨 ${incident.agency} • ${incident.units} unit(s)</div>
+          <div class="popup-detail">⚠️ Severity: ${sev.toUpperCase()}</div>
+          <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+      `;
+      
+      // Add "Go to incident" button for history mode with show all enabled
+      if (mode === 'history' && showAllHistoryOnMap) {
+        popupHtml += `<button class="popup-goto-btn" onclick="navigateToIncidentPage(${incident.id})">Go to incident in list</button>`;
+      }
+      
+      popupHtml += `</div>`;
+      
       const marker = L.polygon(points, {
         color,
         weight: mode === 'history' ? 1 : 1.2,
@@ -914,16 +989,7 @@
         .on('contextmenu', () => {
           window.open(gmaps, '_blank', 'noopener,noreferrer');
         })
-        .bindPopup(`
-          <div class="popup-content">
-            <div class="popup-title">${incident.description}</div>
-            <div class="popup-detail">📍 ${locationStr}</div>
-            <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
-            <div class="popup-detail">🚨 ${incident.agency} • ${incident.units} unit(s)</div>
-            <div class="popup-detail">⚠️ Severity: ${sev.toUpperCase()}</div>
-            <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
-          </div>
-        `);
+        .bindPopup(popupHtml);
       
       if (hasPattern) {
         marker.on('add', ensureMarkerPatterns);
@@ -931,9 +997,33 @@
       return marker;
     }
 
+    function _normalizeLocationToken(value) {
+      return String(value || '').trim().toLowerCase();
+    }
+
+    function isUnknownLocation(incident) {
+      const street = _normalizeLocationToken(incident?.street);
+      const cross = _normalizeLocationToken(incident?.cross_streets);
+      const streetUnknown = street === '' || street === 'unknown';
+      const crossUnknown = cross === '' || cross === 'unknown';
+      return streetUnknown && crossUnknown;
+    }
+
+    // Check if an incident has a valid, mappable location (not "Unknown")
+    function hasValidLocation(incident) {
+      if (!incident) return false;
+      const lat = Number(incident.latitude);
+      const lng = Number(incident.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (isUnknownLocation(incident)) return false;
+      return true;
+    }
+
     // Replace map markers with the given incident set (used for Live and History modes)
     function setMapMarkers(incidents, { fit = false, mode = mapMode } = {}) {
-      const nextIds = new Set((incidents || []).map(i => i.id));
+      // Filter out incidents with "Unknown" location
+      const mappableIncidents = (incidents || []).filter(hasValidLocation);
+      const nextIds = new Set(mappableIncidents.map(i => i.id));
 
       // Remove markers not in the next set
       markers.forEach((marker, id) => {
@@ -944,8 +1034,7 @@
       });
 
       // Add missing markers
-      (incidents || []).forEach(incident => {
-        if (!incident || incident.latitude == null || incident.longitude == null) return;
+      mappableIncidents.forEach(incident => {
         if (!markers.has(incident.id)) {
           const marker = createMarker(incident, { mode });
           marker.addTo(map);
@@ -956,9 +1045,9 @@
         }
       });
 
-      if (fit && incidents && incidents.length > 0) {
+      if (fit && mappableIncidents.length > 0) {
         try {
-          const bounds = L.latLngBounds(incidents.map(i => [i.latitude, i.longitude]));
+          const bounds = L.latLngBounds(mappableIncidents.map(i => [i.latitude, i.longitude]));
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
         } catch (e) {
           // ignore fit errors
@@ -977,11 +1066,12 @@
     function createIncidentCard(incident, isNew = false) {
       const sev = getSeverity(incident);
       const sevClass = getSeverityClass(sev);
+      const hasLocation = hasValidLocation(incident);
+      const clickAttr = hasLocation ? ` onclick="focusIncident(${incident.latitude}, ${incident.longitude})"` : '';
       
       return `
         <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}" 
-             data-id="${incident.id}"
-             onclick="focusIncident(${incident.latitude}, ${incident.longitude})">
+             data-id="${incident.id}"${clickAttr}>
           <div class="incident-header">
             <span class="incident-type">${incident.description}</span>
             <span class="incident-time">${formatTime(incident.time)}</span>
@@ -999,9 +1089,49 @@
     
     // Focus on incident on map
     window.focusIncident = function(lat, lng) {
-      map.flyTo([lat, lng], 15, { duration: 0.5 });
+      const nLat = Number(lat);
+      const nLng = Number(lng);
+      if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) return;
+      map.flyTo([nLat, nLng], 15, { duration: 0.5 });
     };
     
+    // Settings modal
+    const settingsModal = document.getElementById('settings-modal');
+    const settingsClose = document.getElementById('settings-close');
+    const showAllHistoryToggle = document.getElementById('setting-show-all-history');
+    
+    // Load setting from localStorage (default: true - show all incidents on map)
+    let showAllHistoryOnMap = localStorage.getItem('showAllHistoryOnMap') !== 'false';
+    if (showAllHistoryToggle) {
+      showAllHistoryToggle.checked = showAllHistoryOnMap;
+    }
+    
+    // Store all incidents for the day (used when showAllHistoryOnMap is enabled)
+    let allHistoryIncidentsForDay = [];
+    
+    window.toggleSettingsPanel = function(forceOpen) {
+      if (!settingsModal) return;
+      const next = typeof forceOpen === 'boolean' ? forceOpen : !settingsModal.classList.contains('open');
+      settingsModal.classList.toggle('open', next);
+      settingsModal.setAttribute('aria-hidden', String(!next));
+      document.body.classList.toggle('modal-open', next);
+    };
+    
+    settingsClose?.addEventListener('click', () => toggleSettingsPanel(false));
+    settingsModal?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal-backdrop')) toggleSettingsPanel(false);
+    });
+    
+    showAllHistoryToggle?.addEventListener('change', (e) => {
+      showAllHistoryOnMap = e.target.checked;
+      localStorage.setItem('showAllHistoryOnMap', String(showAllHistoryOnMap));
+      // Refresh history view if we're on the history tab
+      const historyPanel = document.getElementById('history-panel');
+      if (historyPanel && !historyPanel.classList.contains('hidden')) {
+        refreshHistoryMapMarkers();
+      }
+    });
+
     // Info modal
     const infoModal = document.getElementById('info-modal');
     const infoClose = document.getElementById('info-close');
@@ -1020,6 +1150,7 @@
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && infoModal?.classList.contains('open')) toggleInfoPanel(false);
+      if (e.key === 'Escape' && settingsModal?.classList.contains('open')) toggleSettingsPanel(false);
     });
     
     // Update incidents
@@ -1134,17 +1265,16 @@
       }
 
       if (historyVisible) {
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
-        const offset = (historyPage - 1) * historyPageSize;
-        let pageData;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(historyFiltered);
-          pageData = sortedAll.slice(offset, offset + historyPageSize);
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
+        renderHistoryList(pageData, historySelectedDate, { total: historyTotal, skipSort });
+        
+        // Use showAllHistoryOnMap setting for map markers
+        if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
+          const allFiltered = getFilteredIncidents(allHistoryIncidentsForDay, currentFilter, currentUrgencyFilter);
+          setMapMarkers(allFiltered, { fit: false, mode: 'history' });
         } else {
-          pageData = historyFiltered;
+          setMapMarkers(pageData, { fit: false, mode: 'history' });
         }
-        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
-        setMapMarkers(pageData, { fit: false, mode: 'history' });
       } else if (liveVisible) {
         const filtered = getFilteredIncidents(currentIncidents);
         renderIncidentList(filtered);
@@ -1196,6 +1326,58 @@
       }
     }
     
+    // Refresh history map markers based on current settings
+    function refreshHistoryMapMarkers() {
+      const historyPanel = document.getElementById('history-panel');
+      if (!historyPanel || historyPanel.classList.contains('hidden')) return;
+      
+      if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
+        // Show all incidents for the day on the map
+        const filteredAll = getFilteredIncidents(allHistoryIncidentsForDay, currentFilter, currentUrgencyFilter);
+        setMapMarkers(filteredAll, { fit: true, mode: 'history' });
+      } else {
+        // Show only current page incidents
+        const filteredPage = getFilteredIncidents(currentHistoryIncidents, currentFilter, currentUrgencyFilter);
+        const offset = (historyPage - 1) * historyPageSize;
+        let pageData;
+        if (currentSort === 'urgency') {
+          const sortedAll = sortIncidents(filteredPage);
+          pageData = sortedAll.slice(offset, offset + historyPageSize);
+        } else {
+          pageData = filteredPage;
+        }
+        setMapMarkers(pageData, { fit: true, mode: 'history' });
+      }
+    }
+    
+    // Find which page an incident is on (for click-to-navigate)
+    function findIncidentPage(incidentId) {
+      if (!allHistoryIncidentsForDay || allHistoryIncidentsForDay.length === 0) return 1;
+      const filteredAll = getFilteredIncidents(allHistoryIncidentsForDay, currentFilter, currentUrgencyFilter);
+      const sorted = sortIncidents(filteredAll);
+      const index = sorted.findIndex(inc => inc.id === incidentId);
+      if (index === -1) return 1;
+      return Math.floor(index / historyPageSize) + 1;
+    }
+    
+    // Navigate to a specific page and highlight the incident
+    async function navigateToIncidentPage(incidentId) {
+      const targetPage = findIncidentPage(incidentId);
+      if (targetPage !== historyPage) {
+        historyPage = targetPage;
+        await loadHistory(historySelectedDate);
+      }
+      // Scroll to and highlight the incident card
+      setTimeout(() => {
+        const card = document.querySelector(`.incident-card[data-id="${incidentId}"]`);
+        if (card) {
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          card.classList.add('highlighted');
+          setTimeout(() => card.classList.remove('highlighted'), 5000);
+        }
+      }, 100);
+    }
+
     // Load history
     async function loadHistory(date) {
       try {
@@ -1210,41 +1392,48 @@
         let incidents = Array.isArray(data.incidents) ? data.incidents : [];
         let total = Number(data.total || 0);
 
-        if (currentSort === 'urgency' && total > incidents.length) {
+        // If we need all incidents (for urgency sort OR for showing all on map), fetch them
+        const needAllIncidents = currentSort === 'urgency' || showAllHistoryOnMap;
+        if (needAllIncidents && total > incidents.length) {
           const fullUrl = `${baseUrl}&limit=${total}&offset=0`;
           const fullResponse = await fetch(fullUrl);
           const fullData = await fullResponse.json();
           incidents = Array.isArray(fullData.incidents) ? fullData.incidents : incidents;
           total = Number(fullData.total || total);
         }
+        historyHasAllIncidents = incidents.length >= total;
 
         currentHistoryIncidents = incidents;
         historyTotal = total;
+        
+        // Store all incidents for the day (used when showAllHistoryOnMap is enabled)
+        if (showAllHistoryOnMap) {
+          allHistoryIncidentsForDay = incidents;
+        }
+        
         // Only update shared filter visibility from History when the History tab is visible.
         const historyPanel = document.getElementById('history-panel');
         const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
         if (historyVisible) {
           updateFilterButtonVisibility(currentHistoryIncidents);
         }
-        const filteredAll = getFilteredIncidents(currentHistoryIncidents, currentFilter);
-        
-        // For urgency sort: sort ALL incidents by urgency first, THEN paginate
-        let filtered;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(filteredAll);
-          filtered = sortedAll.slice(offset, offset + historyPageSize);
-        } else {
-          filtered = filteredAll;
-        }
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
         
         updateHistoryCount(historyTotal, date);
         updateHistoryPagination();
         // Pass skipSort flag so we don't re-sort already-sorted urgency data
-        renderHistoryList(filtered, date, { total: historyTotal, skipSort: currentSort === 'urgency' });
+        renderHistoryList(pageData, date, { total: historyTotal, skipSort });
 
         // Replace map markers with history results when History tab is active
         if (historyVisible) {
-          setMapMarkers(filtered, { fit: true, mode: 'history' });
+          if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
+            // Show all incidents for the day on map
+            const allFiltered = getFilteredIncidents(allHistoryIncidentsForDay, currentFilter, currentUrgencyFilter);
+            setMapMarkers(allFiltered, { fit: true, mode: 'history' });
+          } else {
+            // Show only current page
+            setMapMarkers(pageData, { fit: true, mode: 'history' });
+          }
         }
       } catch (error) {
         console.error('Failed to fetch history:', error);
@@ -1598,16 +1787,22 @@
       const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
 
       if (historyVisible) {
-        const historyFiltered = getFilteredIncidents(currentHistoryIncidents);
-        const offset = (historyPage - 1) * historyPageSize;
-        let pageData;
-        if (currentSort === 'urgency') {
-          const sortedAll = sortIncidents(historyFiltered);
-          pageData = sortedAll.slice(offset, offset + historyPageSize);
-        } else {
-          pageData = historyFiltered;
+        // For history, we might need to refetch if switching to urgency sort
+        // and we don't have all incidents yet
+        if (currentSort === 'urgency' && currentHistoryIncidents.length < historyTotal) {
+          loadHistory(historySelectedDate);
+          return;
         }
-        renderHistoryList(pageData, historySelectedDate, { total: currentHistoryIncidents.length, skipSort: currentSort === 'urgency' });
+        
+        const { pageData, skipSort } = getHistoryPageData(currentHistoryIncidents);
+        renderHistoryList(pageData, historySelectedDate, { total: historyTotal, skipSort });
+        
+        // Also refresh map markers (but don't change what's shown based on sort - that's controlled by setting)
+        if (showAllHistoryOnMap && allHistoryIncidentsForDay.length > 0) {
+          // Already showing all, no need to update map
+        } else {
+          setMapMarkers(pageData, { fit: false, mode: 'history' });
+        }
       } else if (liveVisible) {
         const filtered = getFilteredIncidents(currentIncidents);
         renderIncidentList(filtered);
@@ -1635,6 +1830,57 @@
       if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
       toggleSortMenu(false);
     });
+
+    // Mobile incidents bottom sheet
+    const sidebar = document.querySelector('.sidebar');
+    const panelToggle = document.getElementById('panel-toggle');
+    const mobileQuery = window.matchMedia('(max-width: 720px)');
+
+    function setMobilePanelOpen(open) {
+      if (!sidebar) return;
+      sidebar.classList.toggle('collapsed', !open);
+      document.body.classList.toggle('mobile-incidents-open', open);
+      if (panelToggle) {
+        panelToggle.setAttribute('aria-expanded', String(open));
+        panelToggle.textContent = open ? '▼' : '▲';
+        panelToggle.title = open ? 'Collapse incidents' : 'Expand incidents';
+      }
+    }
+
+    function syncMobilePanel() {
+      const isMobile = mobileQuery.matches;
+      document.body.classList.toggle('mobile-view', isMobile);
+      if (!isMobile) {
+        sidebar?.classList.remove('collapsed');
+        document.body.classList.remove('mobile-incidents-open');
+        if (panelToggle) {
+          panelToggle.setAttribute('aria-expanded', 'true');
+          panelToggle.textContent = '▼';
+          panelToggle.title = 'Collapse incidents';
+        }
+        return;
+      }
+      if (!document.body.classList.contains('mobile-incidents-open')) {
+        setMobilePanelOpen(false);
+      }
+    }
+
+    panelToggle?.addEventListener('click', () => {
+      const isCollapsed = sidebar?.classList.contains('collapsed');
+      setMobilePanelOpen(Boolean(isCollapsed));
+    });
+
+    mobileQuery.addEventListener('change', syncMobilePanel);
+    window.addEventListener('load', syncMobilePanel);
+    syncMobilePanel();
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch((error) => {
+          console.warn('Service worker registration failed:', error);
+        });
+      });
+    }
     
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });

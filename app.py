@@ -497,6 +497,14 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
 def _clean_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
+def _normalize_location_token(value: str | None) -> str:
+    return _clean_ws(value or "").lower()
+
+def _is_unknown_location(street: str | None, cross_streets: str | None) -> bool:
+    street_norm = _normalize_location_token(street)
+    cross_norm = _normalize_location_token(cross_streets)
+    return (street_norm in ("", "unknown")) and (cross_norm in ("", "unknown"))
+
 def _split_cross_tokens(text: str | None) -> list[str]:
     """
     Split a "cross streets" field into individual street tokens.
@@ -557,139 +565,111 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def geocode_address(street, cross_streets, municipality):
     """
     Convert address to lat/lng coordinates.
-    Uses up to TWO cross streets (when available) and handles '@' formatting in the street field.
-    Tries ArcGIS first (better US coverage), then Nominatim.
-    
-    Key: We add "Caddo Parish" to queries to avoid false positives in neighboring Bossier Parish,
-    since many street names exist in both parishes.
+    Fast, best-effort geocoding - tries ArcGIS first, returns as soon as we get 
+    a valid Caddo Parish result.
     """
     import random
     
+    # Skip geocoding entirely if the location is missing/unknown.
+    if _is_unknown_location(street, cross_streets):
+        log("  [--] skipped | location is empty/unknown")
+        return {
+            'lat': None,
+            'lng': None,
+            'source': 'skipped',
+            'quality': 'unknown-location',
+            'query': None,
+        }
+    
     city = _clean_ws(municipality or "") or 'Shreveport'
     state = 'LA'
-    county = 'Caddo Parish'  # Critical: helps geocoders pick the right side of the Red River
 
     street_clean, crosses = _extract_street_and_crosses(street, cross_streets)
     cross1 = crosses[0] if len(crosses) > 0 else None
     cross2 = crosses[1] if len(crosses) > 1 else None
 
-    # Cache key (include both crosses + city so we don't collide on common names like "Dee St")
+    # Cache key
     cache_key = f"{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{city}"
     if cache_key in geocode_cache:
         return geocode_cache[cache_key]
 
-    # Build queries optimized for intersection lookup.
-    # Priority:
-    # - cross1 & cross2 (best when there is no main street, or when street field contains multiple streets)
-    # - street & cross1 / street & cross2
-    # - street only / cross only
-    # 
-    # We generate TWO variants for each: one with county, one without (in case county confuses the geocoder)
-    candidates: list[tuple[str, str]] = []
+    # Build queries in priority order - best first
+    queries: list[tuple[str, str]] = []
     
+    # Best: intersection of two cross streets
     if cross1 and cross2:
-        # With county (preferred - helps avoid Bossier matches)
-        candidates.append((f"{cross1} & {cross2}, {city}, {county}, {state}", "intersection-2"))
-        candidates.append((f"{cross1} and {cross2}, {city}, {county}, {state}", "intersection-2"))
-        # Without county (fallback)
-        candidates.append((f"{cross1} & {cross2}, {city}, {state}", "intersection-2"))
+        queries.append((f"{cross1} & {cross2}, {city}, {state}", "intersection-2"))
+    # Good: street + cross street  
     if street_clean and cross1:
-        candidates.append((f"{street_clean} & {cross1}, {city}, {county}, {state}", "street+cross"))
-        candidates.append((f"{street_clean} and {cross1}, {city}, {county}, {state}", "street+cross"))
-        candidates.append((f"{street_clean} & {cross1}, {city}, {state}", "street+cross"))
+        queries.append((f"{street_clean} & {cross1}, {city}, {state}", "street+cross"))
     if street_clean and cross2:
-        candidates.append((f"{street_clean} & {cross2}, {city}, {county}, {state}", "street+cross"))
-        candidates.append((f"{street_clean} & {cross2}, {city}, {state}", "street+cross"))
+        queries.append((f"{street_clean} & {cross2}, {city}, {state}", "street+cross"))
+    # OK: just the street
     if street_clean:
-        candidates.append((f"{street_clean}, {city}, {county}, {state}", "street-only"))
-        candidates.append((f"{street_clean}, {city}, {state}", "street-only"))
+        queries.append((f"{street_clean}, {city}, {state}", "street-only"))
+    # Fallback: just a cross street
     if cross1:
-        candidates.append((f"{cross1}, {city}, {county}, {state}", "cross-only"))
-        candidates.append((f"{cross1}, {city}, {state}", "cross-only"))
-    candidates.append((f"{city}, {county}, {state}", "city-only"))
-    candidates.append((f"{city}, {state}", "city-only"))
-
-    # De-dupe queries while preserving quality tag for each query string
-    deduped: list[tuple[str, str]] = []
-    seen_q: set[str] = set()
-    for q, quality in candidates:
-        qn = _clean_ws(q)
-        if not qn or qn.lower() in seen_q:
-            continue
-        seen_q.add(qn.lower())
-        deduped.append((qn, quality))
+        queries.append((f"{cross1}, {city}, {state}", "cross-only"))
     
-    # Collect valid results from both providers, then pick the best one
-    # (prefer results clearly in Caddo Parish, close to Shreveport center)
+    # Quality levels - only return early on GOOD matches
+    good_qualities = {'intersection-2', 'street+cross'}
+    
+    # Collect all valid results, return early only on high-quality matches
     valid_results: list[dict] = []
     
-    # Try ArcGIS first (better for US addresses) - collect ALL valid results, don't return early
-    for attempt_query, quality in deduped[:8]:
+    # Try ArcGIS
+    for query, quality in queries:
         try:
-            time.sleep(0.1)
-            location = geolocator_arcgis.geocode(attempt_query, timeout=4)
+            location = geolocator_arcgis.geocode(query, timeout=3)
             if location and _is_in_caddo_bounds(location.latitude, location.longitude):
-                valid_results.append({
+                result = {
                     'lat': location.latitude,
                     'lng': location.longitude,
                     'source': 'arcgis',
                     'quality': quality,
-                    'query': attempt_query,
-                })
+                    'query': query,
+                }
+                # Only return early if it's a HIGH-QUALITY match
+                if quality in good_qualities:
+                    geocode_cache[cache_key] = result
+                    log(f"  [ARC] {quality} | {query} -> ({result['lat']:.5f}, {result['lng']:.5f})")
+                    return result
+                # Otherwise save it and keep trying for something better
+                valid_results.append(result)
         except Exception:
             pass
     
-    # Also try Nominatim/OSM for more options
-    for attempt_query, quality in deduped[:8]:
+    # Try OSM if we don't have a good result yet
+    for query, quality in queries[:3]:
         try:
-            time.sleep(0.1)
-            location = geolocator_osm.geocode(attempt_query, country_codes='us', exactly_one=True, timeout=3)
+            location = geolocator_osm.geocode(query, country_codes='us', exactly_one=True, timeout=3)
             if location and _is_in_caddo_bounds(location.latitude, location.longitude):
-                valid_results.append({
+                result = {
                     'lat': location.latitude,
                     'lng': location.longitude,
                     'source': 'osm',
                     'quality': quality,
-                    'query': attempt_query,
-                })
+                    'query': query,
+                }
+                if quality in good_qualities:
+                    geocode_cache[cache_key] = result
+                    log(f"  [OSM] {quality} | {query} -> ({result['lat']:.5f}, {result['lng']:.5f})")
+                    return result
+                valid_results.append(result)
         except Exception:
             pass
     
-    # Pick the best result from collected candidates
+    # Pick best from what we collected
     if valid_results:
-        # Prefer: intersection-2 > street+cross > street-only > cross-only > city-only
-        quality_rank = {'intersection-2': 5, 'street+cross': 4, 'street-only': 3, 'cross-only': 2, 'city-only': 1}
-        
-        def score_result(r: dict) -> tuple[float, float]:
-            qr = quality_rank.get(r.get('quality', ''), 0)
-            lat = r['lat']
-            lng = r['lng']
-            
-            # Distance from Shreveport center (most incidents are in urban area)
-            dist_m = _haversine_m(lat, lng, SHREVEPORT_CENTER_LAT, SHREVEPORT_CENTER_LON)
-            
-            # Penalize results far from Shreveport urban core:
-            # - Most incidents are in lat 32.40-32.55 range
-            # - Results below 32.38 are likely wrong matches (near parish border)
-            urban_penalty = 0
-            if lat < 32.38:
-                urban_penalty = 15000  # Strong penalty for parish border area
-            elif lat < 32.42:
-                urban_penalty = 5000   # Moderate penalty for southern outskirts
-            
-            # Bonus for being west of -93.70 (clearly not Bossier)
-            west_bonus = 2000 if lng < -93.70 else 0
-            
-            # Final score: quality first, then location score
-            location_score = west_bonus - dist_m - urban_penalty
-            return (qr, location_score)
-        
-        valid_results.sort(key=score_result, reverse=True)
+        # Sort by quality: intersection-2 > street+cross > street-only > cross-only
+        quality_rank = {'intersection-2': 4, 'street+cross': 3, 'street-only': 2, 'cross-only': 1}
+        valid_results.sort(key=lambda r: quality_rank.get(r['quality'], 0), reverse=True)
         result = valid_results[0]
         geocode_cache[cache_key] = result
         log(f"  [{result['source'].upper()[:3]}] {result['quality']} | {result['query']} -> ({result['lat']:.5f}, {result['lng']:.5f})")
         return result
     
+    # Nothing worked - fallback
     log(f"  [--] fallback | {street_clean or '?'} @ {cross1 or '?'} {'& ' + cross2 if cross2 else ''}")
     
     # Fallback to Shreveport area (randomized within western Caddo Parish)
@@ -831,7 +811,7 @@ def process_incidents(incidents):
                 existing_quality = existing[4] if existing_cols == "new" and len(existing) > 4 else None
 
                 needs_geo = (existing_lat is None or existing_lng is None)
-                low_quality = (existing_source in (None, "fallback")) or (existing_quality in (None, "fallback", "city-only", "cross-only"))
+                low_quality = (existing_source in (None, "fallback", "skipped")) or (existing_quality in (None, "fallback", "city-only", "cross-only", "unknown-location"))
                 if (needs_geo or low_quality) and (incident.get('street') or incident.get('cross_streets')):
                     geo = geocode_address(incident.get('street'), incident.get('cross_streets'), incident.get('municipality'))
                     if geo and geo.get('lat') is not None and geo.get('lng') is not None:
@@ -1198,16 +1178,22 @@ def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, 
     scrape_interval_seconds = int(interval_seconds)
     meta_set('scrape_interval_seconds', str(scrape_interval_seconds))
     init_db()
+    
     if initial_scrape:
         background_scrape()
 
     scheduler = BackgroundScheduler(timezone=CENTRAL_TZ)
     
-    # Scrape job - runs every N seconds
+    # Calculate when the next scrape should run
+    # If we just did an initial scrape, wait the full interval before the next one
+    first_run_time = datetime.now(timezone.utc) + timedelta(seconds=int(scrape_interval_seconds)) if initial_scrape else None
+    
+    # Scrape job - runs every N seconds (normal mode with geocoding)
     scheduler.add_job(
         background_scrape,
         'interval',
         seconds=int(scrape_interval_seconds),
+        next_run_time=first_run_time,
         max_instances=1,
         coalesce=True,
         id='scrape_job',

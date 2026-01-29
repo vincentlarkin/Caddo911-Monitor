@@ -1,0 +1,21 @@
+{
+  "name": "Caddo 911 Live Feed",
+  "short_name": "Caddo 911",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "description": "Live emergency incident map for Caddo Parish, Louisiana.",
+  "icons": [
+    {
+      "src": "images/caddo911logo.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "images/caddo911logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
