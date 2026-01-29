@@ -11,8 +11,10 @@ Real-time 911 incident tracker for Caddo Parish, Louisiana with interactive map 
 - **Scrapes** the official [Caddo 911 Active Events](https://ias.ecc.caddo911.com/All_ActiveEvents.aspx) page every 60 seconds
 - **Displays** incidents on an interactive dark-themed map with color-coded markers
 - **Filters** by agency: CAD-FD/EMS (CFD*), SHVFD (SFD*), Police (SPD), Sheriff (CSO), or All
-- **Caches** all incidents to SQLite database for historical viewing
+- **Caches** incidents to SQLite for live + historical views
+- **Archives** older, inactive incidents to monthly archive databases
 - **Geocodes** addresses using cross-street intersections for accuracy
+- **Serves** a single-page frontend from `public/` (Leaflet map + filters)
 
 ## Requirements
 
@@ -71,6 +73,23 @@ python app.py --mode gather --interval 60
 python app.py --mode gather --quiet
 ```
 
+#### Maintenance commands
+
+```bash
+# re-geocode all incidents (improves old coordinates)
+python app.py --regeocode
+
+# archive old incidents to monthly DBs
+python app.py --archive
+```
+
+### Environment (optional)
+
+- `CADDO911_DB_PATH` (default: `caddo911.db`)
+- `CADDO911_ARCHIVE_DAYS` (default: `30`)
+- `CADDO911_AUTH_TOKEN` or `CADDO911_AUTH_USER` + `CADDO911_AUTH_PASS`
+- `CADDO911_ENABLE_REFRESH_ENDPOINT` (set to `1` to enable `/api/refresh`)
+
 ### Self-hosting (NAS / Docker)
 
 See the GitHub wiki page: [Self-hosting](https://github.com/vincentlarkin/Caddo911-Monitor/wiki/Self-hosting)
@@ -79,6 +98,7 @@ See the GitHub wiki page: [Self-hosting](https://github.com/vincentlarkin/Caddo9
 
 This repo also includes wiki pages in `wiki/`:
 
+- [Home](wiki/Home.md)
 - [Behavior](wiki/Behavior.md)
 - [Scraping](wiki/Scraping.md)
 
@@ -87,8 +107,9 @@ This repo also includes wiki pages in `wiki/`:
 1. **Scraping**: Uses `requests` + `BeautifulSoup` to parse the ASP.NET HTML table from Caddo 911's public feed (handles cookie/session requirements)
 2. **Deduplication**: Each incident gets a unique hash based on agency, time, description, and location
 3. **Geocoding**: Cross streets (e.g. "BAIRD RD & SUSAN DR") are prioritized over street names for more accurate intersection placement. Uses ArcGIS first (better US coverage) and falls back to OpenStreetMap's Nominatim.
-4. **Storage**: All incidents stored in `caddo911.db` (SQLite) with timestamps - tracks when incidents appear and disappear
-5. **Frontend**: Single-page app with Leaflet.js map, auto-refreshes every 15 seconds
+4. **Storage**: Incidents stored in `caddo911.db` (SQLite) with timestamps and status
+5. **Archiving**: Inactive incidents older than `CADDO911_ARCHIVE_DAYS` move to `caddo911_archive_YYYY_MM.db`
+6. **Frontend**: Single-page app with Leaflet.js map, auto-refreshes every 15 seconds
 
 ## Agency Codes
 
@@ -110,7 +131,10 @@ All data comes from the public Caddo Parish 911 Communications District feed at:
 |------|---------|
 | `app.py` | Flask server, scraper, scheduler |
 | `public/index.html` | Dashboard UI with map + filters |
+| `public/styles.css` | Frontend styling |
+| `public/images/` | Logos and agency icons |
 | `caddo911.db` | SQLite database (auto-created) |
+| `caddo911_archive_YYYY_MM.db` | Monthly archive databases (auto-created) |
 | `requirements.txt` | Python dependencies |
 
 ## Tips
@@ -126,6 +150,6 @@ This project is **proprietary software** owned by Vincent Larkin.
 - ✅ Personal and educational use permitted
 - ❌ Commercial use prohibited
 - ❌ Government use prohibited without authorization
-- ⚠️ Attribution required: "Created by Vincent Larkin"
+- ⚠️ Attribution required: "Created by Vincent Larkin" with a link to `vincentlarkin.com` or `github.com/vincentlarkin`
 
 See [LICENSE](LICENSE) for full terms.
