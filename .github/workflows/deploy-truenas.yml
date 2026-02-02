@@ -24,7 +24,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             set -e
-            cd /mnt/Pool3x2/Caddo911/repo
+            cd /mnt/Pool3x2/web/Caddo911/repo
             git pull
+            cd ..
             docker compose build --no-cache web collector
             docker compose up -d --force-recreate
