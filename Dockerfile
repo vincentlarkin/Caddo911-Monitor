@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Non-root user for hardening
 RUN useradd -u 10001 -m appuser
 
+# Copy only app sources from build context (./repo)
 COPY . /app
 
 # Persistent data location (SQLite DB)
@@ -20,9 +21,6 @@ USER appuser
 
 EXPOSE 3911
 
-# Default DB path inside container
 ENV CADDO911_DB_PATH=/data/caddo911.db
 
-# Default: collector + UI (simple `docker run`)
 CMD ["python", "app.py", "--mode", "serve", "--host", "0.0.0.0", "--port", "3911"]
-
