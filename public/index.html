@@ -7,7 +7,7 @@
   <link rel="icon" href="images/caddo911logo.png" type="image/png">
   <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
   <link rel="apple-touch-icon" href="images/caddo911logo.png">
-  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="manifest" href="manifest.webmanifest?v=2.8.9">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=2.8.9" />
 </head>
 <body>
   <header class="header">
@@ -50,6 +50,12 @@
         <span class="status-label">Map Theme</span>
         <button class="map-theme-toggle" id="map-theme-toggle" aria-pressed="true" title="Toggle map theme">
           <span class="map-theme-icon" aria-hidden="true">☀️</span>
+        </button>
+      </div>
+      <div class="status-item status-location">
+        <span class="status-label">My Location</span>
+        <button class="location-btn" id="location-btn" title="Show my location" aria-label="Show my location on the map">
+          <span class="map-location-icon" aria-hidden="true">◎</span>
         </button>
       </div>
       <button class="settings-btn" id="settings-btn" onclick="toggleSettingsPanel()" title="Settings">
@@ -119,7 +125,7 @@
           </a>
         </div>
         <p class="info-credit">Created by Vincent Larkin</p>
-        <p class="info-version">v2.8.8d</p>
+        <p class="info-version">v2.8.10</p>
       </div>
     </div>
   </div>
@@ -480,6 +486,215 @@
         setMapTheme(mapTheme === 'light' ? 'dark' : 'light');
       });
     }
+
+    const locationBtn = document.getElementById('location-btn');
+    let userLocationMarker = null;
+    let userLocationAccuracyCircle = null;
+    let geolocationWatchId = null;
+    let latestUserLatLng = null;
+    let hasCenteredOnUser = false;
+    let followUserLocation = false;
+    let hasPrimedHighAccuracy = false;
+    const TARGET_ACCURACY_METERS = 100;
+    const MAX_WAIT_FOR_BETTER_FIX_MS = 12000;
+    let locationTrackingStartedAt = 0;
+    let bestAccuracyMeters = Number.POSITIVE_INFINITY;
+    let bestLocationLatLng = null;
+    let waitingForBetterFixLogged = false;
+
+    function metersToMiles(meters) {
+      return Number(meters) / 1609.344;
+    }
+
+    function logLocationEvent(message, extra = null) {
+      if (extra == null) {
+        console.info(`[location] ${message}`);
+        return;
+      }
+      console.info(`[location] ${message}`, extra);
+    }
+
+    function setLocationButtonState(state = 'idle', title = 'Show my location') {
+      if (!locationBtn) return;
+      const icon = locationBtn.querySelector('.map-location-icon');
+      locationBtn.classList.remove('locating', 'active', 'error');
+      locationBtn.title = title;
+      locationBtn.setAttribute('aria-label', title);
+
+      if (state === 'locating') {
+        locationBtn.classList.add('locating');
+        if (icon) icon.textContent = '…';
+      } else if (state === 'active') {
+        locationBtn.classList.add('active');
+        if (icon) icon.textContent = '◎';
+      } else if (state === 'error') {
+        locationBtn.classList.add('error');
+        if (icon) icon.textContent = '!';
+      } else if (icon) {
+        icon.textContent = '◎';
+      }
+    }
+
+    function updateUserLocation(position) {
+      const lat = Number(position?.coords?.latitude);
+      const lng = Number(position?.coords?.longitude);
+      const accuracy = Number(position?.coords?.accuracy || 0);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      if (Number.isFinite(accuracy) && accuracy > 0 && accuracy < bestAccuracyMeters) {
+        bestAccuracyMeters = accuracy;
+        bestLocationLatLng = [lat, lng];
+        logLocationEvent('improved location accuracy', {
+          lat: Number(lat.toFixed(6)),
+          lng: Number(lng.toFixed(6)),
+          accuracyMiles: Number(metersToMiles(accuracy).toFixed(3))
+        });
+      }
+
+      const hasBetterFix = Array.isArray(bestLocationLatLng) && Number.isFinite(bestAccuracyMeters);
+      const useBestFix = hasBetterFix && bestAccuracyMeters + 10 < accuracy;
+      const displayLatLng = useBestFix ? bestLocationLatLng : [lat, lng];
+      const displayAccuracy = useBestFix ? bestAccuracyMeters : accuracy;
+
+      logLocationEvent('got location update', {
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6)),
+        accuracyMiles: Number(metersToMiles(accuracy).toFixed(3)),
+        timestamp: new Date(position.timestamp || Date.now()).toISOString()
+      });
+
+      latestUserLatLng = displayLatLng;
+      const radius = Math.max(displayAccuracy, 15);
+
+      if (!userLocationMarker) {
+        userLocationMarker = L.circleMarker(latestUserLatLng, {
+          radius: 7,
+          color: '#ffffff',
+          weight: 2,
+          fillColor: '#3b8bff',
+          fillOpacity: 0.95,
+          pane: 'markerPane'
+        }).bindPopup('You are here');
+        userLocationMarker.addTo(map);
+      } else {
+        userLocationMarker.setLatLng(latestUserLatLng);
+      }
+
+      if (!userLocationAccuracyCircle) {
+        userLocationAccuracyCircle = L.circle(latestUserLatLng, {
+          radius,
+          color: '#3b8bff',
+          weight: 1,
+          fillColor: '#3b8bff',
+          fillOpacity: 0.12,
+          interactive: false,
+          pane: 'overlayPane'
+        }).addTo(map);
+      } else {
+        userLocationAccuracyCircle.setLatLng(latestUserLatLng);
+        userLocationAccuracyCircle.setRadius(radius);
+      }
+
+      const elapsedMs = Math.max(0, Date.now() - locationTrackingStartedAt);
+      const accuracyGoodEnough = displayAccuracy <= TARGET_ACCURACY_METERS;
+      const waitedLongEnough = elapsedMs >= MAX_WAIT_FOR_BETTER_FIX_MS;
+
+      if (!hasCenteredOnUser && !accuracyGoodEnough && !waitedLongEnough && !waitingForBetterFixLogged) {
+        waitingForBetterFixLogged = true;
+        logLocationEvent('waiting for better GPS fix', {
+          currentAccuracyMiles: Number(metersToMiles(displayAccuracy).toFixed(3)),
+          targetAccuracyMiles: Number(metersToMiles(TARGET_ACCURACY_METERS).toFixed(3))
+        });
+      }
+
+      if (!hasCenteredOnUser && (accuracyGoodEnough || waitedLongEnough)) {
+        waitingForBetterFixLogged = false;
+      }
+
+      if (!hasCenteredOnUser && (accuracyGoodEnough || waitedLongEnough)) {
+        map.flyTo(latestUserLatLng, Math.max(map.getZoom(), 16), { duration: 0.5 });
+        hasCenteredOnUser = true;
+      } else if (followUserLocation) {
+        map.flyTo(latestUserLatLng, Math.max(map.getZoom(), 16), { duration: 0.5 });
+      }
+
+      const accuracyLabelMiles = Number(metersToMiles(displayAccuracy).toFixed(2));
+      setLocationButtonState('active', `Center on my location (~${accuracyLabelMiles} mi)`);
+    }
+
+    function startLocationTracking() {
+      if (!navigator.geolocation) {
+        logLocationEvent('geolocation unavailable in this browser');
+        setLocationButtonState('error', 'Geolocation not available in this browser');
+        return;
+      }
+      if (geolocationWatchId != null) {
+        logLocationEvent('tracking already active');
+        return;
+      }
+
+      logLocationEvent('location button clicked, requesting high-accuracy position');
+      setLocationButtonState('locating', 'Getting your location...');
+      locationTrackingStartedAt = Date.now();
+      bestAccuracyMeters = Number.POSITIVE_INFINITY;
+      bestLocationLatLng = null;
+      waitingForBetterFixLogged = false;
+
+      // Prime with a one-shot lookup first (fresh reading, no cache)
+      if (!hasPrimedHighAccuracy) {
+        hasPrimedHighAccuracy = true;
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            updateUserLocation(position);
+          },
+          (error) => {
+            logLocationEvent('initial location lookup failed', {
+              code: error?.code,
+              message: error?.message || 'Unknown geolocation error'
+            });
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 0
+          }
+        );
+      }
+
+      geolocationWatchId = navigator.geolocation.watchPosition(
+        (position) => updateUserLocation(position),
+        (error) => {
+          geolocationWatchId = null;
+          followUserLocation = false;
+          const denied = error?.code === 1;
+          const title = denied ? 'Location permission denied' : 'Unable to get your location';
+          logLocationEvent('watch position failed', {
+            code: error?.code,
+            message: error?.message || 'Unknown geolocation error'
+          });
+          setLocationButtonState('error', title);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
+        }
+      );
+    }
+
+    locationBtn?.addEventListener('click', () => {
+      followUserLocation = true;
+      if (latestUserLatLng) {
+        map.flyTo(latestUserLatLng, Math.max(map.getZoom(), 16), { duration: 0.5 });
+        setLocationButtonState('active', 'Center on my location');
+        return;
+      }
+      startLocationTracking();
+    });
+
+    map.on('dragstart zoomstart', () => {
+      followUserLocation = false;
+    });
     
     // Store markers
     const markers = new Map();
@@ -1876,9 +2091,11 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js').catch((error) => {
-          console.warn('Service worker registration failed:', error);
-        });
+        navigator.serviceWorker.register('service-worker.js?v=2.8.9', { updateViaCache: 'none' })
+          .then((registration) => registration.update())
+          .catch((error) => {
+            console.warn('Service worker registration failed:', error);
+          });
       });
     }
     

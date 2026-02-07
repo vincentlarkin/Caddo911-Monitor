@@ -455,7 +455,7 @@ def _security_headers(resp):
     resp.headers.setdefault('X-Content-Type-Options', 'nosniff')
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
-    resp.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+    resp.headers.setdefault('Permissions-Policy', 'geolocation=(self), microphone=(), camera=()')
     return resp
 
 # Geocoder setup with caching - try ArcGIS first (better US coverage), fallback to Nominatim

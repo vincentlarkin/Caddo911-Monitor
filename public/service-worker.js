@@ -1,4 +1,4 @@
-const CACHE_NAME = 'caddo911-shell-v1';
+const CACHE_NAME = 'caddo911-shell-v2';
 const CORE_ASSETS = [
   new URL('./', self.location).toString(),
   new URL('./index.html', self.location).toString(),
@@ -31,24 +31,24 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
+  const indexUrl = new URL('./index.html', self.location).toString();
 
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(new URL('./index.html', self.location).toString(), copy));
-          return response;
-        })
-        .catch(() => caches.match(new URL('./index.html', self.location).toString()))
-    );
-    return;
-  }
-
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        if (!response || response.status !== 200) return response;
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match(indexUrl);
+        return new Response('Offline', { status: 503, statusText: 'Offline' });
+      })
   );
 });

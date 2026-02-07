@@ -138,7 +138,8 @@
       animation: none;
     }
     
-    .map-theme-toggle {
+    .map-theme-toggle,
+    .location-btn {
       padding: 8px 10px;
       border-radius: 10px;
       border: 1px solid var(--border);
@@ -155,7 +156,8 @@
       height: 32px;
     }
     
-    .map-theme-toggle:hover {
+    .map-theme-toggle:hover,
+    .location-btn:hover {
       border-color: var(--text-dim);
       color: var(--red);
       box-shadow: 0 0 18px rgba(255, 59, 59, 0.1);
@@ -165,6 +167,29 @@
     .map-theme-toggle .map-theme-icon {
       font-size: 16px;
       line-height: 1;
+    }
+
+    .location-btn .map-location-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .location-btn.locating {
+      border-color: rgba(255, 184, 48, 0.55);
+      color: var(--amber);
+      box-shadow: 0 0 18px rgba(255, 184, 48, 0.15);
+    }
+
+    .location-btn.active {
+      border-color: rgba(59, 139, 255, 0.6);
+      color: var(--blue);
+      box-shadow: 0 0 18px rgba(59, 139, 255, 0.2);
+    }
+
+    .location-btn.error {
+      border-color: rgba(255, 59, 59, 0.65);
+      color: var(--red);
+      box-shadow: 0 0 18px rgba(255, 59, 59, 0.18);
     }
     
     @keyframes blink {
@@ -1799,7 +1824,8 @@
         font-size: 14px;
       }
 
-      .map-theme-toggle {
+      .map-theme-toggle,
+      .location-btn {
         width: 36px;
         height: 30px;
       }
