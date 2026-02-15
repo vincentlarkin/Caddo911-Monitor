@@ -1938,7 +1938,10 @@
     // Close date picker when clicking outside of it
     document.addEventListener('click', (e) => {
       if (!datePickerEl.classList.contains('open')) return;
-      if (datePickerEl.contains(e.target) || historyDateBtn.contains(e.target)) return;
+      const clickPath = typeof e.composedPath === 'function' ? e.composedPath() : [];
+      const clickedInsidePicker = clickPath.includes(datePickerEl) || datePickerEl.contains(e.target);
+      const clickedDateButton = clickPath.includes(historyDateBtn) || historyDateBtn.contains(e.target);
+      if (clickedInsidePicker || clickedDateButton) return;
       toggleDatePicker(false);
     });
     
