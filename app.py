@@ -6,7 +6,6 @@ Scrapes Caddo Parish 911 dispatch data and displays on interactive map
 
 import sqlite3
 import hashlib
-import json
 import time
 import argparse
 import os
@@ -16,12 +15,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from threading import Thread
 from flask import Flask, jsonify, request, send_from_directory
-import requests
-from bs4 import BeautifulSoup
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut
 from apscheduler.schedulers.background import BackgroundScheduler
 from zoneinfo import ZoneInfo
+from sources import caddo as caddo_source
+from sources import lafayette as lafayette_source
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 
@@ -75,6 +73,7 @@ def _init_archive_db(path: str) -> None:
             street TEXT,
             cross_streets TEXT,
             municipality TEXT,
+            source TEXT DEFAULT 'caddo',
             latitude REAL,
             longitude REAL,
             first_seen DATETIME,
@@ -86,14 +85,21 @@ def _init_archive_db(path: str) -> None:
             geocoded_at DATETIME
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE incidents ADD COLUMN source TEXT DEFAULT 'caddo'")
+    except sqlite3.OperationalError:
+        pass
+    cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
     conn.commit()
     conn.close()
 
 # Scraper/status metadata
 SCRAPE_INTERVAL_SECONDS_DEFAULT = 60
-feed_refreshed_at: str | None = None  # e.g. "January 13 09:56"
+feed_refreshed_at: str | None = None  # backwards-compatible: Caddo refresh text
+feed_refreshed_by_source: dict[str, str | None] = {"caddo": None, "lafayette": None}
 last_scrape_started_at: str | None = None  # ISO UTC
 last_scrape_finished_at: str | None = None  # ISO UTC
 
@@ -147,6 +153,7 @@ def init_db():
             street TEXT,
             cross_streets TEXT,
             municipality TEXT,
+            source TEXT DEFAULT 'caddo',
             latitude REAL,
             longitude REAL,
             first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -157,10 +164,12 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_active ON incidents(is_active)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
 
     # Add geocoding metadata columns (safe to run on an existing DB; does NOT delete data)
     # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS in older versions, so we try/except.
     for col_name, col_type in (
+        ("source", "TEXT DEFAULT 'caddo'"),
         ("geocode_source", "TEXT"),     # 'arcgis' | 'osm' | 'fallback'
         ("geocode_quality", "TEXT"),    # 'intersection-2' | 'street+cross' | 'street-only' | 'cross-only' | 'fallback'
         ("geocode_query", "TEXT"),      # the query string we sent to the provider
@@ -170,6 +179,9 @@ def init_db():
             cursor.execute(f"ALTER TABLE incidents ADD COLUMN {col_name} {col_type}")
         except sqlite3.OperationalError:
             pass
+
+    # Backfill legacy rows that predate multi-source support.
+    cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
 
     # Metadata table (shared across collector + web processes)
     cursor.execute('''
@@ -263,10 +275,10 @@ def archive_old_incidents(*, dry_run: bool = False) -> dict:
                 try:
                     archive_cursor.execute('''
                         INSERT OR IGNORE INTO incidents 
-                        (hash, agency, time, units, description, street, cross_streets, municipality,
+                        (hash, agency, time, units, description, street, cross_streets, municipality, source,
                          latitude, longitude, first_seen, last_seen, is_active,
                          geocode_source, geocode_quality, geocode_query, geocoded_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         inc.get('hash'),
                         inc.get('agency'),
@@ -276,6 +288,7 @@ def archive_old_incidents(*, dry_run: bool = False) -> dict:
                         inc.get('street'),
                         inc.get('cross_streets'),
                         inc.get('municipality'),
+                        inc.get('source') or 'caddo',
                         inc.get('latitude'),
                         inc.get('longitude'),
                         inc.get('first_seen'),
@@ -464,22 +477,45 @@ geolocator_arcgis = ArcGIS(timeout=5)
 geolocator_osm = Nominatim(user_agent=SCRAPER_USER_AGENT, timeout=5)
 geocode_cache = {}
 
-# Caddo Parish bounding box - exclude Bossier Parish (east of Red River ~-93.65)
-# Caddo Parish is roughly: lat 32.15-32.85, lon -94.04 to -93.56
-# But to avoid Bossier false positives, we use a tighter western bound
-CADDO_LAT_MIN = 32.10
-CADDO_LAT_MAX = 32.90
-CADDO_LON_MIN = -94.10  # western edge of Caddo Parish
-CADDO_LON_MAX = -93.62  # just west of Red River (excludes most of Bossier)
+# Source geocode profiles (bounds + fallback center).
+# Caddo bounds intentionally exclude most of Bossier.
+SOURCE_GEO_PROFILES = {
+    "caddo": {
+        "lat_min": 32.10,
+        "lat_max": 32.90,
+        "lon_min": -94.10,
+        "lon_max": -93.62,
+        "center_lat": 32.5252,
+        "center_lon": -93.7502,
+        "default_city": "Shreveport",
+    },
+    "lafayette": {
+        "lat_min": 29.70,
+        "lat_max": 30.55,
+        "lon_min": -92.35,
+        "lon_max": -91.70,
+        "center_lat": 30.2241,
+        "center_lon": -92.0198,
+        "default_city": "Lafayette",
+    },
+}
 
-# Shreveport city center (for distance-based fallback ranking)
-SHREVEPORT_CENTER_LAT = 32.5252
-SHREVEPORT_CENTER_LON = -93.7502
 
-def _is_in_caddo_bounds(lat: float, lon: float) -> bool:
-    """Check if coordinates are within Caddo Parish (west of Red River)."""
-    return (CADDO_LAT_MIN < lat < CADDO_LAT_MAX and 
-            CADDO_LON_MIN < lon < CADDO_LON_MAX)
+def _normalize_source_name(source: str | None) -> str:
+    s = (source or "caddo").strip().lower()
+    return s if s in SOURCE_GEO_PROFILES else "caddo"
+
+
+def _source_geo_profile(source: str | None) -> dict:
+    return SOURCE_GEO_PROFILES[_normalize_source_name(source)]
+
+
+def _is_in_source_bounds(lat: float, lon: float, source: str | None) -> bool:
+    profile = _source_geo_profile(source)
+    return (
+        profile["lat_min"] < lat < profile["lat_max"]
+        and profile["lon_min"] < lon < profile["lon_max"]
+    )
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
@@ -562,14 +598,16 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
 
-def geocode_address(street, cross_streets, municipality):
+def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
     """
     Convert address to lat/lng coordinates.
-    Fast, best-effort geocoding - tries ArcGIS first, returns as soon as we get 
-    a valid Caddo Parish result.
+    Fast, best-effort geocoding with source-aware bounds.
     """
     import random
-    
+
+    source_name = _normalize_source_name(source)
+    geo_profile = _source_geo_profile(source_name)
+
     # Skip geocoding entirely if the location is missing/unknown.
     if _is_unknown_location(street, cross_streets):
         log("  [--] skipped | location is empty/unknown")
@@ -581,7 +619,7 @@ def geocode_address(street, cross_streets, municipality):
             'query': None,
         }
     
-    city = _clean_ws(municipality or "") or 'Shreveport'
+    city = _clean_ws(municipality or "") or geo_profile['default_city']
     state = 'LA'
 
     street_clean, crosses = _extract_street_and_crosses(street, cross_streets)
@@ -589,7 +627,7 @@ def geocode_address(street, cross_streets, municipality):
     cross2 = crosses[1] if len(crosses) > 1 else None
 
     # Cache key
-    cache_key = f"{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{city}"
+    cache_key = f"{source_name}|{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{city}"
     if cache_key in geocode_cache:
         return geocode_cache[cache_key]
 
@@ -621,7 +659,7 @@ def geocode_address(street, cross_streets, municipality):
     for query, quality in queries:
         try:
             location = geolocator_arcgis.geocode(query, timeout=3)
-            if location and _is_in_caddo_bounds(location.latitude, location.longitude):
+            if location and _is_in_source_bounds(location.latitude, location.longitude, source_name):
                 result = {
                     'lat': location.latitude,
                     'lng': location.longitude,
@@ -643,7 +681,7 @@ def geocode_address(street, cross_streets, municipality):
     for query, quality in queries[:3]:
         try:
             location = geolocator_osm.geocode(query, country_codes='us', exactly_one=True, timeout=3)
-            if location and _is_in_caddo_bounds(location.latitude, location.longitude):
+            if location and _is_in_source_bounds(location.latitude, location.longitude, source_name):
                 result = {
                     'lat': location.latitude,
                     'lng': location.longitude,
@@ -672,11 +710,11 @@ def geocode_address(street, cross_streets, municipality):
     # Nothing worked - fallback
     log(f"  [--] fallback | {street_clean or '?'} @ {cross1 or '?'} {'& ' + cross2 if cross2 else ''}")
     
-    # Fallback to Shreveport area (randomized within western Caddo Parish)
+    # Fallback to source region center with slight jitter.
     offset = lambda: (random.random() - 0.5) * 0.04
     default = {
-        'lat': 32.47 + offset(),
-        'lng': -93.79 + offset(),
+        'lat': geo_profile['center_lat'] + offset(),
+        'lng': geo_profile['center_lon'] + offset(),
         'source': 'fallback',
         'quality': 'fallback',
         'query': None,
@@ -686,104 +724,64 @@ def geocode_address(street, cross_streets, municipality):
 
 def hash_incident(incident):
     """Generate unique hash for incident deduplication"""
-    key = f"{incident['agency']}-{incident['time']}-{incident['description']}-{incident['street']}-{incident['cross_streets']}"
+    source = _normalize_source_name(incident.get('source') if isinstance(incident, dict) else None)
+    key = (
+        f"{source}-{incident['agency']}-{incident['time']}-"
+        f"{incident['description']}-{incident['street']}-{incident['cross_streets']}"
+    )
     return hashlib.md5(key.encode()).hexdigest()
 
-def scrape_incidents():
+def scrape_caddo_incidents():
     """
-    Scrape active incidents from Caddo 911 website (ASP.NET site with cookie requirement).
-    Returns a tuple: (incidents, refreshed_at_text)
-      - refreshed_at_text example: "January 13 09:56"
+    Scrape active incidents from Caddo 911 website.
     """
-    base_url = 'https://ias.ecc.caddo911.com/All_ActiveEvents.aspx'
-    
     try:
-        # Create session to handle cookies (ASP.NET requires this)
-        session = requests.Session()
-        headers = {
-            'User-Agent': SCRAPER_USER_AGENT,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-        }
-        session.headers.update(headers)
-        
-        # First request establishes session cookie
-        response = session.get(base_url, timeout=15, allow_redirects=True)
-        
-        # If redirected to cookie check URL, follow it
-        if 'AspxAutoDetectCookieSupport' in response.url or response.status_code == 302:
-            response = session.get(f"{base_url}?AspxAutoDetectCookieSupport=1", timeout=15)
-        
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        incidents = []
-        refreshed_at_text = None
-
-        # Extract the page's own refresh banner timestamp (matches: "Refreshed at: ...")
-        for s in soup.stripped_strings:
-            if 'Refreshed at:' in s:
-                refreshed_at_text = s.split('Refreshed at:', 1)[1].strip()
-                break
-        
-        # Find the data table - look for table with incident data
-        tables = soup.find_all('table')
-        
-        for table in tables:
-            for row in table.find_all('tr'):
-                cells = row.find_all('td')
-                if len(cells) >= 6:
-                    agency = cells[0].get_text(strip=True)
-                    time_val = cells[1].get_text(strip=True)
-                    units = cells[2].get_text(strip=True)
-                    description = cells[3].get_text(strip=True)
-                    street = cells[4].get_text(strip=True)
-                    cross_streets = cells[5].get_text(strip=True)
-                    municipality = cells[6].get_text(strip=True) if len(cells) > 6 else ''
-                    
-                    # Validate: agency should be short code, time should be 3-4 digits
-                    if (agency and len(agency) <= 10 and 
-                        time_val and time_val.isdigit() and len(time_val) <= 4 and
-                        description):
-                        incidents.append({
-                            'agency': agency,
-                            'time': time_val,
-                            'units': int(units) if units.isdigit() else 1,
-                            'description': description,
-                            'street': street,
-                            'cross_streets': cross_streets,
-                            'municipality': municipality
-                        })
-        
-        return incidents, refreshed_at_text
-    
+        return caddo_source.scrape(user_agent=SCRAPER_USER_AGENT, timeout_seconds=15)
     except Exception as e:
-        log(f"Scraping error: {e}")
+        log(f"Caddo scraping error: {e}")
         import traceback
         traceback.print_exc()
         return [], None
+
+
+def scrape_lafayette_incidents():
+    """Scrape active incidents from Lafayette traffic feed."""
+    try:
+        return lafayette_source.scrape(user_agent=SCRAPER_USER_AGENT, timeout_seconds=15)
+    except Exception as e:
+        log(f"Lafayette scraping error: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], None
+
+
+# Backwards compatibility for any old call sites.
+def scrape_incidents():
+    return scrape_caddo_incidents()
 
 # Track last update time
 last_update: str | None = None
 scrape_interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT
 
-def process_incidents(incidents):
+def process_incidents(incidents, *, source: str = 'caddo'):
     """Store/update incidents in database"""
     global last_update
-    
+
     if not incidents:
         return
-    
+
+    source_default = _normalize_source_name(source)
     conn = db_connect()
     cursor = conn.cursor()
     now = datetime.now(timezone.utc).isoformat()
     current_hashes = set()
-    
+
     for incident in incidents:
+        incident_source = _normalize_source_name(incident.get('source') if isinstance(incident, dict) else source_default)
+        incident['source'] = incident_source
         h = hash_incident(incident)
         current_hashes.add(h)
-        
+
         # Check if exists
         try:
             cursor.execute(
@@ -799,7 +797,7 @@ def process_incidents(incidents):
         
         if existing:
             # Update last_seen
-            cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1 WHERE hash = ?', (now, h))
+            cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1, source = ? WHERE hash = ?', (now, incident_source, h))
 
             # Opportunistic re-geocode: if we previously fell back (or have no coords),
             # try again using the improved intersection logic. This keeps your DB, but improves
@@ -813,7 +811,12 @@ def process_incidents(incidents):
                 needs_geo = (existing_lat is None or existing_lng is None)
                 low_quality = (existing_source in (None, "fallback", "skipped")) or (existing_quality in (None, "fallback", "city-only", "cross-only", "unknown-location"))
                 if (needs_geo or low_quality) and (incident.get('street') or incident.get('cross_streets')):
-                    geo = geocode_address(incident.get('street'), incident.get('cross_streets'), incident.get('municipality'))
+                    geo = geocode_address(
+                        incident.get('street'),
+                        incident.get('cross_streets'),
+                        incident.get('municipality'),
+                        source=incident_source,
+                    )
                     if geo and geo.get('lat') is not None and geo.get('lng') is not None:
                         should_update = False
                         if needs_geo:
@@ -853,14 +856,19 @@ def process_incidents(incidents):
                 pass
         else:
             # New incident - geocode and insert
-            geo = geocode_address(incident['street'], incident['cross_streets'], incident['municipality'])
+            geo = geocode_address(
+                incident['street'],
+                incident['cross_streets'],
+                incident['municipality'],
+                source=incident_source,
+            )
             try:
                 cursor.execute('''
                     INSERT OR IGNORE INTO incidents 
-                    (hash, agency, time, units, description, street, cross_streets, municipality,
+                    (hash, agency, time, units, description, street, cross_streets, municipality, source,
                      latitude, longitude, first_seen, last_seen,
                      geocode_source, geocode_quality, geocode_query, geocoded_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     h,
                     incident['agency'],
@@ -870,6 +878,7 @@ def process_incidents(incidents):
                     incident['street'],
                     incident['cross_streets'],
                     incident['municipality'],
+                    incident_source,
                     geo['lat'],
                     geo['lng'],
                     now,
@@ -880,39 +889,77 @@ def process_incidents(incidents):
                     now,
                 ))
             except sqlite3.OperationalError:
-                # Older schema: insert without geocode metadata columns
-                cursor.execute('''
-                    INSERT OR IGNORE INTO incidents 
-                    (hash, agency, time, units, description, street, cross_streets, municipality, latitude, longitude, first_seen, last_seen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    h,
-                    incident['agency'],
-                    incident['time'],
-                    incident['units'],
-                    incident['description'],
-                    incident['street'],
-                    incident['cross_streets'],
-                    incident['municipality'],
-                    geo['lat'],
-                    geo['lng'],
-                    now,
-                    now
-                ))
+                # Older schema: try insert without geocode metadata columns.
+                try:
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO incidents 
+                        (hash, agency, time, units, description, street, cross_streets, municipality, source, latitude, longitude, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        h,
+                        incident['agency'],
+                        incident['time'],
+                        incident['units'],
+                        incident['description'],
+                        incident['street'],
+                        incident['cross_streets'],
+                        incident['municipality'],
+                        incident_source,
+                        geo['lat'],
+                        geo['lng'],
+                        now,
+                        now
+                    ))
+                except sqlite3.OperationalError:
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO incidents 
+                        (hash, agency, time, units, description, street, cross_streets, municipality, latitude, longitude, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        h,
+                        incident['agency'],
+                        incident['time'],
+                        incident['units'],
+                        incident['description'],
+                        incident['street'],
+                        incident['cross_streets'],
+                        incident['municipality'],
+                        geo['lat'],
+                        geo['lng'],
+                        now,
+                        now
+                    ))
             log(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
-    
-    # Mark incidents no longer in feed as inactive
-    cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
+
+    # Mark incidents no longer in feed as inactive (source-scoped).
+    if source_default == 'caddo':
+        cursor.execute("SELECT hash FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
+    else:
+        cursor.execute('SELECT hash FROM incidents WHERE is_active = 1 AND source = ?', (source_default,))
     active_hashes = [row[0] for row in cursor.fetchall()]
-    
+
     for h in active_hashes:
         if h not in current_hashes:
             cursor.execute('UPDATE incidents SET is_active = 0 WHERE hash = ?', (h,))
-    
+
     conn.commit()
     conn.close()
     last_update = datetime.now(timezone.utc).isoformat()
     meta_set('last_update', last_update)
+
+
+def _store_feed_refresh(source: str, refreshed_at_text: str | None) -> None:
+    global feed_refreshed_at
+    if not refreshed_at_text:
+        return
+    source_name = _normalize_source_name(source)
+    feed_refreshed_by_source[source_name] = refreshed_at_text
+    meta_set(f'feed_refreshed_at_{source_name}', refreshed_at_text)
+    if source_name == 'caddo':
+        # Keep old status field for backwards compatibility with frontend clients.
+        feed_refreshed_at = refreshed_at_text
+        meta_set('feed_refreshed_at', refreshed_at_text)
+
 
 def background_scrape():
     """Background task to scrape incidents periodically"""
@@ -920,19 +967,38 @@ def background_scrape():
 
     last_scrape_started_at = datetime.now(timezone.utc).isoformat()
     meta_set('last_scrape_started_at', last_scrape_started_at)
-    log(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping Caddo 911...")
-    incidents, refreshed_at_text = scrape_incidents()
-    if refreshed_at_text:
-        feed_refreshed_at = refreshed_at_text
-        meta_set('feed_refreshed_at', feed_refreshed_at)
-    if incidents:
-        process_incidents(incidents)
-        log(f"[{datetime.now().strftime('%H:%M:%S')}] Processed {len(incidents)} active incidents")
-    else:
-        log(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents found or scraping failed")
+
+    source_jobs = [
+        ('caddo', 'Caddo 911', scrape_caddo_incidents),
+        ('lafayette', 'Lafayette 911 (beta)', scrape_lafayette_incidents),
+    ]
+    for source_name, label, scraper in source_jobs:
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Scraping {label}...")
+        incidents, refreshed_at_text = scraper()
+        _store_feed_refresh(source_name, refreshed_at_text)
+        if incidents:
+            process_incidents(incidents, source=source_name)
+            log(f"[{datetime.now().strftime('%H:%M:%S')}] Processed {len(incidents)} active incidents from {source_name}")
+        else:
+            log(f"[{datetime.now().strftime('%H:%M:%S')}] No incidents found or scraping failed for {source_name}")
 
     last_scrape_finished_at = datetime.now(timezone.utc).isoformat()
     meta_set('last_scrape_finished_at', last_scrape_finished_at)
+
+
+VALID_SOURCES = {'caddo', 'lafayette'}
+
+
+def _normalize_source_filter(value: str | None) -> str:
+    s = (value or 'all').strip().lower()
+    if s == 'all':
+        return 'all'
+    return s if s in VALID_SOURCES else 'all'
+
+
+def _normalize_incident_source_for_read(source: str | None) -> str:
+    return _normalize_source_name(source or 'caddo')
+
 
 # API Routes
 @app.route('/')
@@ -945,10 +1011,18 @@ def healthz():
 
 @app.route('/api/incidents/active')
 def get_active_incidents():
+    source_filter = _normalize_source_filter(request.args.get('source'))
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM incidents WHERE is_active = 1 ORDER BY time DESC')
+    if source_filter == 'all':
+        cursor.execute('SELECT * FROM incidents WHERE is_active = 1 ORDER BY time DESC')
+    elif source_filter == 'caddo':
+        cursor.execute("SELECT * FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY time DESC")
+    else:
+        cursor.execute('SELECT * FROM incidents WHERE is_active = 1 AND source = ? ORDER BY time DESC', (source_filter,))
     incidents = [dict(row) for row in cursor.fetchall()]
+    for incident in incidents:
+        incident['source'] = _normalize_incident_source_for_read(incident.get('source'))
     conn.close()
     return jsonify(incidents)
 
@@ -957,35 +1031,68 @@ def get_history():
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
     date = request.args.get('date')  # YYYY-MM-DD format
-    
+    source_filter = _normalize_source_filter(request.args.get('source'))
+
     all_incidents: list[dict] = []
     total = 0
-    
+
     # Query main database
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
-    
+
     if date:
         bounds = _central_date_bounds_utc(date)
         if bounds:
             start_utc, end_utc = bounds
-            cursor.execute(
-                'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
-                (start_utc, end_utc)
-            )
+            if source_filter == 'all':
+                cursor.execute(
+                    'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                    (start_utc, end_utc)
+                )
+            elif source_filter == 'caddo':
+                cursor.execute(
+                    "SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY first_seen DESC",
+                    (start_utc, end_utc)
+                )
+            else:
+                cursor.execute(
+                    'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ? ORDER BY first_seen DESC',
+                    (start_utc, end_utc, source_filter)
+                )
             all_incidents.extend([dict(row) for row in cursor.fetchall()])
-            cursor.execute(
-                'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
-                (start_utc, end_utc)
-            )
+            if source_filter == 'all':
+                cursor.execute(
+                    'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+                    (start_utc, end_utc)
+                )
+            elif source_filter == 'caddo':
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')",
+                    (start_utc, end_utc)
+                )
+            else:
+                cursor.execute(
+                    'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ?',
+                    (start_utc, end_utc, source_filter)
+                )
             total += cursor.fetchone()['count']
     else:
-        cursor.execute('SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC')
+        if source_filter == 'all':
+            cursor.execute('SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC')
+        elif source_filter == 'caddo':
+            cursor.execute("SELECT * FROM incidents WHERE is_active = 0 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY first_seen DESC")
+        else:
+            cursor.execute('SELECT * FROM incidents WHERE is_active = 0 AND source = ? ORDER BY first_seen DESC', (source_filter,))
         all_incidents.extend([dict(row) for row in cursor.fetchall()])
-        cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
+        if source_filter == 'all':
+            cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
+        elif source_filter == 'caddo':
+            cursor.execute("SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
+        else:
+            cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND source = ?', (source_filter,))
         total += cursor.fetchone()['count']
     conn.close()
-    
+
     # Also query archive database(s) if date is specified and archive exists
     if date:
         archive_dbs = _get_archive_dbs_for_date(date)
@@ -996,29 +1103,67 @@ def get_history():
                 bounds = _central_date_bounds_utc(date)
                 if bounds:
                     start_utc, end_utc = bounds
-                    archive_cursor.execute(
-                        'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
-                        (start_utc, end_utc)
-                    )
-                    all_incidents.extend([dict(row) for row in archive_cursor.fetchall()])
-                    archive_cursor.execute(
-                        'SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ?',
-                        (start_utc, end_utc)
-                    )
-                    total += archive_cursor.fetchone()['count']
+                    if source_filter == 'all':
+                        archive_cursor.execute(
+                            'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                            (start_utc, end_utc)
+                        )
+                        rows = [dict(row) for row in archive_cursor.fetchall()]
+                        archive_cursor.execute(
+                            'SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                            (start_utc, end_utc)
+                        )
+                        count_row = archive_cursor.fetchone()
+                        total += int(count_row['count']) if count_row else 0
+                    else:
+                        source_sql = "source = ?" if source_filter != 'caddo' else "(source = 'caddo' OR source IS NULL OR TRIM(source) = '')"
+                        source_args = (source_filter,) if source_filter != 'caddo' else tuple()
+                        try:
+                            archive_cursor.execute(
+                                f'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? AND {source_sql} ORDER BY first_seen DESC',
+                                (start_utc, end_utc, *source_args)
+                            )
+                            rows = [dict(row) for row in archive_cursor.fetchall()]
+                            archive_cursor.execute(
+                                f'SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ? AND {source_sql}',
+                                (start_utc, end_utc, *source_args)
+                            )
+                            count_row = archive_cursor.fetchone()
+                            total += int(count_row['count']) if count_row else 0
+                        except sqlite3.OperationalError:
+                            # Legacy archives without source column are Caddo-only.
+                            if source_filter == 'lafayette':
+                                rows = []
+                            else:
+                                archive_cursor.execute(
+                                    'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                                    (start_utc, end_utc)
+                                )
+                                rows = [dict(row) for row in archive_cursor.fetchall()]
+                                archive_cursor.execute(
+                                    'SELECT COUNT(*) as count FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                                    (start_utc, end_utc)
+                                )
+                                count_row = archive_cursor.fetchone()
+                                total += int(count_row['count']) if count_row else 0
+                    all_incidents.extend(rows)
                 archive_conn.close()
             except Exception as e:
                 log(f"[ARCHIVE] Error reading {archive_path}: {e}")
-    
+
+    for incident in all_incidents:
+        incident['source'] = _normalize_incident_source_for_read(incident.get('source'))
+
     # Sort all incidents by first_seen descending, then apply pagination
     all_incidents.sort(key=lambda x: x.get('first_seen') or '', reverse=True)
     paginated = all_incidents[offset:offset + limit]
-    
+
     return jsonify({'incidents': paginated, 'total': total})
 
 @app.route('/api/incidents/history_counts')
 def get_history_counts():
     month = request.args.get('month')  # YYYY-MM format
+    source_filter = _normalize_source_filter(request.args.get('source'))
 
     if not month or len(month) != 7:
         return jsonify({'error': 'month is required (YYYY-MM)'}), 400
@@ -1031,10 +1176,21 @@ def get_history_counts():
     cursor = conn.cursor()
     if bounds:
         start_utc, end_utc = bounds
-        cursor.execute(
-            'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
-            (start_utc, end_utc)
-        )
+        if source_filter == 'all':
+            cursor.execute(
+                'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+                (start_utc, end_utc)
+            )
+        elif source_filter == 'caddo':
+            cursor.execute(
+                "SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')",
+                (start_utc, end_utc)
+            )
+        else:
+            cursor.execute(
+                'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ?',
+                (start_utc, end_utc, source_filter)
+            )
         for row in cursor.fetchall():
             day = _central_date_key(row['first_seen'])
             if day:
@@ -1049,10 +1205,31 @@ def get_history_counts():
             archive_cursor = archive_conn.cursor()
             if bounds:
                 start_utc, end_utc = bounds
-                archive_cursor.execute(
-                    'SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ?',
-                    (start_utc, end_utc)
-                )
+                try:
+                    if source_filter == 'all':
+                        archive_cursor.execute(
+                            'SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                            (start_utc, end_utc)
+                        )
+                    elif source_filter == 'caddo':
+                        archive_cursor.execute(
+                            "SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')",
+                            (start_utc, end_utc)
+                        )
+                    else:
+                        archive_cursor.execute(
+                            'SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ? AND source = ?',
+                            (start_utc, end_utc, source_filter)
+                        )
+                except sqlite3.OperationalError:
+                    # Legacy archive DBs are Caddo-only and have no source column.
+                    if source_filter == 'lafayette':
+                        archive_conn.close()
+                        continue
+                    archive_cursor.execute(
+                        'SELECT first_seen FROM incidents WHERE first_seen >= ? AND first_seen < ?',
+                        (start_utc, end_utc)
+                    )
                 for row in archive_cursor.fetchall():
                     day = _central_date_key(row['first_seen'])
                     if day:
@@ -1107,6 +1284,8 @@ def get_status():
     meta = meta_get_many([
         'last_update',
         'feed_refreshed_at',
+        'feed_refreshed_at_caddo',
+        'feed_refreshed_at_lafayette',
         'last_scrape_started_at',
         'last_scrape_finished_at',
         'scrape_interval_seconds',
@@ -1120,11 +1299,17 @@ def get_status():
     # Prefer scrape-finished time for "last update" display; otherwise fall back to last_update.
     display_base = last_scrape_finished_dt or last_update_dt
 
+    refreshed_by_source = {
+        'caddo': meta.get('feed_refreshed_at_caddo') or feed_refreshed_by_source.get('caddo'),
+        'lafayette': meta.get('feed_refreshed_at_lafayette') or feed_refreshed_by_source.get('lafayette'),
+    }
+
     return jsonify({
         # lastUpdate: UTC ISO timestamp of when we last processed/saved a scrape
         'lastUpdate': meta.get('last_update') or last_update,
         # feedRefreshedAt: the website's own "Refreshed at: ..." text (local to Caddo911)
         'feedRefreshedAt': meta.get('feed_refreshed_at') or feed_refreshed_at,
+        'feedRefreshedBySource': refreshed_by_source,
         'lastScrapeStartedAt': meta.get('last_scrape_started_at') or last_scrape_started_at,
         'lastScrapeFinishedAt': meta.get('last_scrape_finished_at') or last_scrape_finished_at,
         'serverNow': datetime.now(timezone.utc).isoformat(),
@@ -1148,14 +1333,26 @@ def force_refresh():
         global feed_refreshed_at, last_scrape_started_at, last_scrape_finished_at
         last_scrape_started_at = datetime.now(timezone.utc).isoformat()
         meta_set('last_scrape_started_at', last_scrape_started_at)
-        incidents, refreshed_at_text = scrape_incidents()
-        if refreshed_at_text:
-            feed_refreshed_at = refreshed_at_text
-            meta_set('feed_refreshed_at', feed_refreshed_at)
-        process_incidents(incidents)
+        total_count = 0
+        for source_name, scraper in (
+            ('caddo', scrape_caddo_incidents),
+            ('lafayette', scrape_lafayette_incidents),
+        ):
+            incidents, refreshed_at_text = scraper()
+            _store_feed_refresh(source_name, refreshed_at_text)
+            process_incidents(incidents, source=source_name)
+            total_count += len(incidents)
         last_scrape_finished_at = datetime.now(timezone.utc).isoformat()
         meta_set('last_scrape_finished_at', last_scrape_finished_at)
-        return jsonify({'success': True, 'count': len(incidents), 'feedRefreshedAt': feed_refreshed_at})
+        return jsonify({
+            'success': True,
+            'count': total_count,
+            'feedRefreshedAt': feed_refreshed_at,
+            'feedRefreshedBySource': {
+                'caddo': feed_refreshed_by_source.get('caddo'),
+                'lafayette': feed_refreshed_by_source.get('lafayette'),
+            },
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1342,7 +1539,12 @@ def run_regeocode(*, dry_run: bool = False, limit: int | None = None) -> None:
         
         try:
             # Get new geocode
-            geo = geocode_address(street, cross_streets, municipality)
+            geo = geocode_address(
+                street,
+                cross_streets,
+                municipality,
+                source=row_dict.get('source') or 'caddo',
+            )
             new_lat = geo.get('lat')
             new_lng = geo.get('lng')
             new_source = geo.get('source')

@@ -414,6 +414,69 @@
       height: 2px;
       background: var(--red);
     }
+
+    .source-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-panel);
+    }
+
+    .source-tab {
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-dim);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .source-tab:hover {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .source-tab.active {
+      color: var(--red);
+      border-color: rgba(255, 59, 59, 0.45);
+      box-shadow: 0 0 14px rgba(255, 59, 59, 0.16);
+      background: rgba(255, 59, 59, 0.08);
+    }
+
+    .beta-pill {
+      font-size: 9px;
+      line-height: 1;
+      padding: 3px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 184, 48, 0.45);
+      color: var(--amber);
+      background: rgba(255, 184, 48, 0.12);
+    }
+
+    .source-group {
+      margin-bottom: 12px;
+    }
+
+    .source-group-header {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      padding: 6px 8px;
+      margin-bottom: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+    }
     
     .incident-list {
       flex: 1;
@@ -848,6 +911,64 @@
     .sort-control {
       position: relative;
       width: 100%;
+    }
+
+    .agency-bank-controls {
+      display: inline-flex;
+      gap: 6px;
+      width: 100%;
+      margin-bottom: 4px;
+      padding: 2px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+    }
+
+    .agency-bank-controls.hidden {
+      display: none !important;
+    }
+
+    .agency-bank-btn {
+      flex: 1;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-dim);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      min-height: 32px;
+      letter-spacing: 0.4px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .agency-bank-btn:hover {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.32);
+    }
+
+    .agency-bank-btn.active {
+      color: var(--text);
+      border-color: rgba(59, 139, 255, 0.6);
+      background: rgba(59, 139, 255, 0.22);
+      box-shadow: 0 0 14px rgba(59, 139, 255, 0.22);
+    }
+
+    .agency-bank-btn:focus-visible {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.55);
+      box-shadow: 0 0 0 2px rgba(59, 139, 255, 0.22);
+    }
+
+    .agency-group {
+      width: 100%;
+      flex-wrap: wrap;
+      animation: slideIn 0.15s ease-out;
+    }
+
+    .agency-group.hidden {
+      display: none !important;
     }
 
     .sort-btn {
@@ -1750,6 +1871,7 @@
       }
 
       .sidebar.collapsed .filter-bar,
+      .sidebar.collapsed .source-tabs,
       .sidebar.collapsed #live-panel,
       .sidebar.collapsed #history-panel,
       .sidebar.collapsed .history-controls {
@@ -1818,6 +1940,16 @@
         padding: 6px 8px;
       }
 
+      .source-tabs {
+        padding: 6px 8px 8px;
+        gap: 5px;
+      }
+
+      .source-tab {
+        font-size: 9px;
+        padding: 5px 9px;
+      }
+
       .panel-toggle {
         display: grid;
         place-items: center;
@@ -1859,6 +1991,19 @@
       .filter-bar {
         gap: 6px;
         padding: 6px 6px;
+      }
+
+      .agency-bank-controls {
+        margin-bottom: 3px;
+        gap: 4px;
+        padding: 2px;
+      }
+
+      .agency-bank-btn {
+        min-height: 30px;
+        padding: 6px 8px;
+        font-size: 9px;
+        letter-spacing: 0.2px;
       }
 
       .filter-logo {

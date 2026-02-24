@@ -1,6 +1,6 @@
-# Caddo 911 Live Feed
+# Caddo 911 Live Feed (with Lafayette Beta)
 
-Real-time 911 incident tracker for Caddo Parish, Louisiana with interactive map visualization.
+Real-time incident tracker for Caddo Parish and Lafayette traffic incidents with an interactive map and live/history views.
 
 ![Dashboard](https://img.shields.io/badge/Status-Live-red) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![License](https://img.shields.io/badge/License-Proprietary-orange)
 
@@ -8,12 +8,14 @@ Real-time 911 incident tracker for Caddo Parish, Louisiana with interactive map 
 
 ## What It Does
 
-- **Scrapes** the official [Caddo 911 Active Events](https://ias.ecc.caddo911.com/All_ActiveEvents.aspx) page every 60 seconds
+- **Scrapes** the official [Caddo 911 Active Events](https://ias.ecc.caddo911.com/All_ActiveEvents.aspx) feed and Lafayette's traffic feed every cycle
 - **Displays** incidents on an interactive dark-themed map with color-coded markers
-- **Filters** by agency: CAD-FD/EMS (CFD*), SHVFD (SFD*), Police (SPD), Sheriff (CSO), or All
+- **Supports source tabs**: `All`, `Caddo`, and `Lafayette (Beta)` in both Live and History views
+- **Groups incidents by source** in `All` mode (not interleaved)
+- **Filters** by agency and urgency/severity
 - **Caches** incidents to SQLite for live + historical views
 - **Archives** older, inactive incidents to monthly archive databases
-- **Geocodes** addresses using cross-street intersections for accuracy
+- **Geocodes** addresses using source-aware bounds for better placement
 - **Serves** a single-page frontend from `public/` (Leaflet map + filters)
 
 ## Requirements
@@ -104,14 +106,14 @@ This repo also includes wiki pages in `wiki/`:
 
 ## How It Works
 
-1. **Scraping**: Uses `requests` + `BeautifulSoup` to parse the ASP.NET HTML table from Caddo 911's public feed (handles cookie/session requirements)
-2. **Deduplication**: Each incident gets a unique hash based on agency, time, description, and location
-3. **Geocoding**: Cross streets (e.g. "BAIRD RD & SUSAN DR") are prioritized over street names for more accurate intersection placement. Uses ArcGIS first (better US coverage) and falls back to OpenStreetMap's Nominatim.
-4. **Storage**: Incidents stored in `caddo911.db` (SQLite) with timestamps and status
-5. **Archiving**: Inactive incidents older than `CADDO911_ARCHIVE_DAYS` move to `caddo911_archive_YYYY_MM.db`
-6. **Frontend**: Single-page app with Leaflet.js map, auto-refreshes every 15 seconds
+1. **Scraping**: Uses source adapters in `sources/` (`caddo` + `lafayette`) to fetch and normalize incidents into one shared data shape.
+2. **Deduplication**: Each incident gets a source-aware hash based on source, agency, time, description, and location.
+3. **Geocoding**: Cross streets are prioritized over street names for more accurate intersection placement. Uses ArcGIS first and falls back to OpenStreetMap's Nominatim.
+4. **Storage**: Incidents stored in `caddo911.db` (SQLite) with source, timestamps, and active/inactive status.
+5. **Archiving**: Inactive incidents older than `CADDO911_ARCHIVE_DAYS` move to `caddo911_archive_YYYY_MM.db`.
+6. **Frontend**: Single-page app with Leaflet.js map, source tabs, and shared filters for Live + History views.
 
-## Agency Codes
+## Agency Labels
 
 | Code | Agency |
 |------|--------|
@@ -119,17 +121,26 @@ This repo also includes wiki pages in `wiki/`:
 | SFD | Shreveport Fire Department |
 | SPD | Shreveport Police Department |
 | CSO | Caddo Sheriff's Office |
+| POLICE | Lafayette Police label |
+| SHERIFF | Lafayette Sheriff label |
+| FIRE | Lafayette Fire label |
 
-## Data Source
+## Data Sources
 
-All data comes from the public Caddo Parish 911 Communications District feed at:
-`https://ias.ecc.caddo911.com/All_ActiveEvents.aspx`
+This app currently ingests from:
+
+- Caddo Parish 911 Communications District public feed:  
+  `https://ias.ecc.caddo911.com/All_ActiveEvents.aspx`
+- Lafayette Parish traffic feed endpoint (beta integration):  
+  `https://lafayette911.org/wp-json/traffic-feed/v1/data`
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `app.py` | Flask server, scraper, scheduler |
+| `sources/caddo.py` | Caddo source adapter |
+| `sources/lafayette.py` | Lafayette source adapter |
 | `public/index.html` | Dashboard UI with map + filters |
 | `public/styles.css` | Frontend styling |
 | `public/images/` | Logos and agency icons |
@@ -140,7 +151,8 @@ All data comes from the public Caddo Parish 911 Communications District feed at:
 ## Tips
 
 - **Geocoding improves over time**: The app stores geocode metadata and can re-geocode low-quality points automatically as new scrapes arrive (no DB wipe required).
-- **Filter incidents**: Use the filter buttons (CAD-FD/EMS, SHVFD, Police, Sheriff) to focus on specific agency types
+- **Choose source scope**: Use `All`, `Caddo`, or `Lafayette (Beta)` to control which feed is visible.
+- **Filter incidents**: Use filter buttons to focus on agency types and urgency/severity.
 - **Historical view**: Switch to "History" tab and select a date to browse past incidents
 
 ## License

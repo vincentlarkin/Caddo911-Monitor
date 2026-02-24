@@ -1,4 +1,4 @@
-const CACHE_NAME = 'caddo911-shell-v2';
+const CACHE_NAME = 'caddo911-shell-v3.2.91LAbeta';
 const CORE_ASSETS = [
   new URL('./', self.location).toString(),
   new URL('./index.html', self.location).toString(),
@@ -9,7 +9,9 @@ const CORE_ASSETS = [
   new URL('./images/cfd-fire.png', self.location).toString(),
   new URL('./images/sfd-fire.png', self.location).toString(),
   new URL('./images/spd-police.png', self.location).toString(),
-  new URL('./images/cso-sheriff.png', self.location).toString()
+  new URL('./images/cso-sheriff.png', self.location).toString(),
+  new URL('./images/lafayette-police.png', self.location).toString(),
+  new URL('./images/lafayette-sheriff.png', self.location).toString()
 ];
 
 self.addEventListener('install', (event) => {

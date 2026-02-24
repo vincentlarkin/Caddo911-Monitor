@@ -7,7 +7,7 @@
   <link rel="icon" href="images/caddo911logo.png" type="image/png">
   <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
   <link rel="apple-touch-icon" href="images/caddo911logo.png">
-  <link rel="manifest" href="manifest.webmanifest?v=2.8.9">
+  <link rel="manifest" href="manifest.webmanifest?v=3.2.91LAbeta">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=2.8.9" />
+  <link rel="stylesheet" href="styles.css?v=3.2.91LAbeta" />
 </head>
 <body>
   <header class="header">
@@ -125,7 +125,7 @@
           </a>
         </div>
         <p class="info-credit">Created by Vincent Larkin</p>
-        <p class="info-version">v2.8.10</p>
+        <p class="info-version">v3.2.91LAbeta</p>
       </div>
     </div>
   </div>
@@ -184,12 +184,25 @@
         <button class="panel-toggle" id="panel-toggle" type="button" aria-expanded="true" aria-label="Toggle incidents panel" title="Collapse incidents">▼</button>
       </div>
 
+      <div class="source-tabs" id="source-tabs" aria-label="Incident source">
+        <button class="source-tab active" data-source="all" title="Show all sources">All</button>
+        <button class="source-tab" data-source="caddo" title="Show only Caddo incidents">Caddo</button>
+        <button class="source-tab" data-source="lafayette" title="Show only Lafayette incidents">
+          Lafayette <span class="beta-pill">Beta</span>
+        </button>
+      </div>
+
       <!-- Shared filters (apply to Live + History lists) -->
       <div class="filter-bar">
         <div class="filter-rows">
-          <!-- Agency filters -->
-          <div class="filter-group" data-filter-type="agency">
-            <button class="filter-btn active" data-filter="all" title="All agencies">All</button>
+          <div class="agency-bank-controls hidden" id="agency-bank-controls">
+            <button type="button" class="agency-bank-btn active" data-agency-view="caddo">Caddo Units</button>
+            <button type="button" class="agency-bank-btn" data-agency-view="lafayette">Lafayette Units</button>
+          </div>
+
+          <!-- Caddo unit filters -->
+          <div class="filter-group agency-group agency-group-caddo" data-filter-type="agency-caddo">
+            <button class="filter-btn active" data-filter="all" title="All Caddo units">All</button>
             <button class="filter-btn" data-filter="cadfd" title="Caddo Fire/EMS">
               <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
             </button>
@@ -197,10 +210,21 @@
               <img src="images/sfd-fire.png" alt="SHVFD" class="filter-logo">
             </button>
             <button class="filter-btn" data-filter="police" title="Shreveport Police">
-              <img src="images/spd-police.png" alt="Police" class="filter-logo">
+              <img src="images/spd-police.png" alt="Shreveport Police" class="filter-logo">
             </button>
             <button class="filter-btn" data-filter="sheriff" title="Caddo Sheriff">
-              <img src="images/cso-sheriff.png" alt="Sheriff" class="filter-logo">
+              <img src="images/cso-sheriff.png" alt="Caddo Sheriff" class="filter-logo">
+            </button>
+          </div>
+
+          <!-- Lafayette unit filters -->
+          <div class="filter-group agency-group agency-group-lafayette hidden" data-filter-type="agency-lafayette">
+            <button class="filter-btn active" data-laf-unit="all" title="All Lafayette units">All</button>
+            <button class="filter-btn" data-laf-unit="police" title="Lafayette Police">
+              <img src="images/lafayette-police.png" alt="Lafayette Police" class="filter-logo">
+            </button>
+            <button class="filter-btn" data-laf-unit="sheriff" title="Lafayette Sheriff">
+              <img src="images/lafayette-sheriff.png" alt="Lafayette Sheriff" class="filter-logo">
             </button>
           </div>
           <!-- Urgency/Severity filters -->
@@ -700,6 +724,9 @@
     const markers = new Map();
     let currentIncidents = [];
     let currentHistoryIncidents = [];
+    let currentSource = 'all'; // 'all' | 'caddo' | 'lafayette'
+    let currentLafayetteUnit = 'all'; // 'all' | 'police' | 'sheriff'
+    let agencyButtonView = 'caddo'; // which button bank is currently visible
     let currentFilter = 'all';  // Agency filter
     let currentUrgencyFilter = 'all';  // Urgency/severity filter
     let currentSort = 'recent'; // 'recent' | 'urgency'
@@ -711,18 +738,18 @@
     
     // Agency color mapping
     function getAgencyColor(agency) {
-      if (agency.startsWith('CFD') || agency.startsWith('SFD')) return '#ff6b35'; // Fire
+      if (agency.startsWith('CFD') || agency.startsWith('SFD') || agency.includes('FIRE')) return '#ff6b35'; // Fire
       if (agency === 'EMS' || agency.includes('EMS')) return '#ff3b6b'; // Medical
-      if (agency === 'SPD') return '#3b8bff'; // Police
-      if (agency === 'CSO') return '#9b59b6'; // Sheriff
+      if (agency === 'SPD' || agency.includes('POLICE')) return '#3b8bff'; // Police
+      if (agency === 'CSO' || agency.includes('SHERIFF')) return '#9b59b6'; // Sheriff
       return '#ffb830'; // Other
     }
     
     function getAgencyClass(agency) {
-      if (agency.startsWith('CFD') || agency.startsWith('SFD')) return 'fire';
+      if (agency.startsWith('CFD') || agency.startsWith('SFD') || agency.includes('FIRE')) return 'fire';
       if (agency === 'EMS' || agency.includes('EMS')) return 'medical';
-      if (agency === 'SPD') return 'police';
-      if (agency === 'CSO') return 'sheriff';
+      if (agency === 'SPD' || agency.includes('POLICE')) return 'police';
+      if (agency === 'CSO' || agency.includes('SHERIFF')) return 'sheriff';
       return 'other';
     }
     
@@ -899,11 +926,60 @@
       if (sev === 'custody') return `url(#${MARKER_PATTERN_IDS.custody})`;
       return getSeverityColor(sev);
     }
+
+    const SOURCE_ORDER = ['caddo', 'lafayette'];
+
+    function normalizeSource(source) {
+      const s = String(source || '').trim().toLowerCase();
+      if (s === 'lafayette') return 'lafayette';
+      if (s === 'caddo') return 'caddo';
+      return 'caddo';
+    }
+
+    function sourceLabel(source) {
+      return source === 'lafayette' ? 'Lafayette (Beta)' : 'Caddo';
+    }
+
+    function sourceQueryParam() {
+      return `source=${encodeURIComponent(currentSource)}`;
+    }
+
+    function groupIncidentsBySource(incidents) {
+      const grouped = new Map([
+        ['caddo', []],
+        ['lafayette', []],
+      ]);
+      (incidents || []).forEach((incident) => {
+        const source = normalizeSource(incident?.source);
+        if (!grouped.has(source)) grouped.set(source, []);
+        incident.source = source;
+        grouped.get(source).push(incident);
+      });
+      return grouped;
+    }
+
+    function renderSourceGroups(incidents) {
+      const grouped = groupIncidentsBySource(incidents);
+      let html = '';
+      SOURCE_ORDER.forEach((source) => {
+        const rows = grouped.get(source) || [];
+        if (!rows.length) return;
+        html += `
+          <section class="source-group">
+            <div class="source-group-header">${sourceLabel(source)} - ${rows.length}</div>
+            ${rows.map(inc => createIncidentCard(inc, false)).join('')}
+          </section>
+        `;
+      });
+      return html;
+    }
     
     // Filter logic - matches agency codes to filter categories
     function matchesAgencyFilter(incident, filter) {
       if (filter === 'all') return true;
-      
+      const source = normalizeSource(incident?.source);
+      if (source !== 'caddo') return true; // Caddo filter should never filter Lafayette incidents.
+
       const agency = incident.agency.toUpperCase();
       
       switch (filter) {
@@ -927,9 +1003,33 @@
       return sev === urgencyFilter;
     }
 
-    // Combined filter - checks both agency AND urgency
+    // Lafayette-only unit filter. This does not affect Caddo incidents.
+    function matchesLafayetteUnitFilter(incident, unitFilter = currentLafayetteUnit) {
+      const uf = unitFilter || 'all';
+      if (uf === 'all') return true;
+
+      const source = normalizeSource(incident?.source);
+      if (source !== 'lafayette') return true;
+
+      const agency = String(incident?.agency || '').toUpperCase();
+      if (uf === 'police') return agency.includes('POLICE');
+      if (uf === 'sheriff') return agency.includes('SHERIFF');
+      return true;
+    }
+
+    function matchesActiveUnitFilters(incident) {
+      const source = normalizeSource(incident?.source);
+      if (source === 'lafayette') return matchesLafayetteUnitFilter(incident, currentLafayetteUnit);
+      return matchesAgencyFilter(incident, currentFilter);
+    }
+
+    // Combined filter - checks agency + urgency + Lafayette unit.
     function matchesFilters(incident, agencyFilter, urgencyFilter) {
-      return matchesAgencyFilter(incident, agencyFilter) && matchesUrgencyFilter(incident, urgencyFilter);
+      return (
+        matchesAgencyFilter(incident, agencyFilter) &&
+        matchesUrgencyFilter(incident, urgencyFilter) &&
+        matchesLafayetteUnitFilter(incident)
+      );
     }
     
     function filterLabel(filter) {
@@ -952,6 +1052,23 @@
         case 'custody': return 'custody';
         default: return urgency;
       }
+    }
+
+    function currentUnitFilterValueForUi() {
+      if (currentSource === 'lafayette') return currentLafayetteUnit;
+      if (currentSource === 'caddo') return currentFilter;
+      // In "All", mirror whichever unit bank is currently visible.
+      return agencyButtonView === 'lafayette' ? currentLafayetteUnit : currentFilter;
+    }
+
+    function currentUnitFilterLabelForUi() {
+      const value = currentUnitFilterValueForUi();
+      if (agencyButtonView === 'lafayette' || currentSource === 'lafayette') {
+        if (value === 'police') return 'lafayette police';
+        if (value === 'sheriff') return 'lafayette sheriff';
+        return 'lafayette units';
+      }
+      return filterLabel(value);
     }
 
     function getFilteredIncidents(incidents, agencyFilter, urgencyFilter) {
@@ -1007,15 +1124,19 @@
     // Update filter button visibility and counts for both agency and urgency filters.
     // This dims filters with 0 incidents so users understand they're empty.
     function updateFilterButtonVisibility(baseIncidents) {
-      // Agency counts (considering current urgency filter)
-      const agencyCounts = {
+      // Caddo unit counts (considering current urgency filter)
+      const caddoCounts = {
         cadfd: 0,
         shvfd: 0,
         police: 0,
         sheriff: 0,
       };
+      const lafayetteCounts = {
+        police: 0,
+        sheriff: 0,
+      };
 
-      // Urgency counts (considering current agency filter)
+      // Urgency counts (considering current unit filters per source)
       const urgencyCounts = {
         high: 0,
         medical: 0,
@@ -1026,18 +1147,24 @@
       };
 
       for (const inc of baseIncidents || []) {
+        const source = normalizeSource(inc?.source);
         const sev = getSeverity(inc);
         
-        // Count for agency filters (apply current urgency filter)
+        // Count unit filters (apply current urgency filter only).
         if (matchesUrgencyFilter(inc, currentUrgencyFilter)) {
-          if (matchesAgencyFilter(inc, 'cadfd')) agencyCounts.cadfd += 1;
-          if (matchesAgencyFilter(inc, 'shvfd')) agencyCounts.shvfd += 1;
-          if (matchesAgencyFilter(inc, 'police')) agencyCounts.police += 1;
-          if (matchesAgencyFilter(inc, 'sheriff')) agencyCounts.sheriff += 1;
+          if (source === 'caddo') {
+            if (matchesAgencyFilter(inc, 'cadfd')) caddoCounts.cadfd += 1;
+            if (matchesAgencyFilter(inc, 'shvfd')) caddoCounts.shvfd += 1;
+            if (matchesAgencyFilter(inc, 'police')) caddoCounts.police += 1;
+            if (matchesAgencyFilter(inc, 'sheriff')) caddoCounts.sheriff += 1;
+          } else if (source === 'lafayette') {
+            if (matchesLafayetteUnitFilter(inc, 'police')) lafayetteCounts.police += 1;
+            if (matchesLafayetteUnitFilter(inc, 'sheriff')) lafayetteCounts.sheriff += 1;
+          }
         }
 
-        // Count for urgency filters (apply current agency filter)
-        if (matchesAgencyFilter(inc, currentFilter)) {
+        // Count urgency filters (apply current source-specific unit filters).
+        if (matchesActiveUnitFilters(inc)) {
           if (urgencyCounts.hasOwnProperty(sev)) {
             urgencyCounts[sev] += 1;
           }
@@ -1047,14 +1174,25 @@
       // Always show filter "tabs" even when they have 0 incidents.
       // Visually dim them so users understand they’re empty, but still allow clicking
       // (the list will show a "No incidents" message).
-      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
+      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
         const f = btn.dataset.filter;
         if (f === 'all') {
           btn.dataset.count = '';
           btn.classList.remove('empty');
           return;
         }
-        const count = agencyCounts[f] || 0;
+        const count = caddoCounts[f] || 0;
+        btn.dataset.count = String(count);
+        btn.classList.toggle('empty', count === 0);
+      });
+      document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+        const unit = btn.dataset.lafUnit;
+        if (unit === 'all') {
+          btn.dataset.count = '';
+          btn.classList.remove('empty');
+          return;
+        }
+        const count = lafayetteCounts[unit] || 0;
         btn.dataset.count = String(count);
         btn.classList.toggle('empty', count === 0);
       });
@@ -1073,8 +1211,11 @@
       });
 
       // If the active agency filter has no incidents (after urgency filter), fall back to "all".
-      if (currentFilter !== 'all' && (agencyCounts[currentFilter] || 0) === 0) {
+      if (currentFilter !== 'all' && (caddoCounts[currentFilter] || 0) === 0) {
         currentFilter = 'all';
+      }
+      if (currentLafayetteUnit !== 'all' && (lafayetteCounts[currentLafayetteUnit] || 0) === 0) {
+        currentLafayetteUnit = 'all';
       }
 
       // If the active urgency filter has no incidents (after agency filter), fall back to "all".
@@ -1083,8 +1224,11 @@
       }
 
       // Keep active state consistent (especially after fallback)
-      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
+      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === currentFilter);
+      });
+      document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lafUnit === currentLafayetteUnit);
       });
       document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.urgency === currentUrgencyFilter);
@@ -1371,8 +1515,11 @@
     // Update incidents
     async function updateIncidents() {
       try {
-        const response = await fetch('api/incidents/active');
+        const response = await fetch(`api/incidents/active?${sourceQueryParam()}`);
         const allIncidents = await response.json();
+        allIncidents.forEach((incident) => {
+          incident.source = normalizeSource(incident?.source);
+        });
         
         // Store all incidents
         currentIncidents = allIncidents;
@@ -1406,15 +1553,15 @@
       const listEl = document.getElementById('incident-list');
       const sorted = sortIncidents(incidents);
       if (sorted.length === 0) {
-        const hasAgencyFilter = currentFilter !== 'all';
+        const hasAgencyFilter = currentUnitFilterValueForUi() !== 'all';
         const hasUrgencyFilter = currentUrgencyFilter !== 'all';
         const hasAnyFilter = hasAgencyFilter || hasUrgencyFilter;
         
         let label = 'active';
         if (hasAgencyFilter && hasUrgencyFilter) {
-          label = `${urgencyLabel(currentUrgencyFilter)} ${filterLabel(currentFilter)}`;
+          label = `${urgencyLabel(currentUrgencyFilter)} ${currentUnitFilterLabelForUi()}`;
         } else if (hasAgencyFilter) {
-          label = filterLabel(currentFilter);
+          label = currentUnitFilterLabelForUi();
         } else if (hasUrgencyFilter) {
           label = urgencyLabel(currentUrgencyFilter);
         }
@@ -1427,21 +1574,25 @@
           </div>
         `;
       } else {
-        listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
+        if (currentSource === 'all') {
+          listEl.innerHTML = renderSourceGroups(sorted);
+        } else {
+          listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
+        }
       }
     }
     
     // Apply agency filter and update display
     function applyAgencyFilter(filter) {
-      const btn = document.querySelector(`.filter-group[data-filter-type="agency"] .filter-btn[data-filter="${filter}"]`);
+      const btn = document.querySelector(`.filter-group[data-filter-type="agency-caddo"] .filter-btn[data-filter="${filter}"]`);
       const isEmpty = filter !== 'all' && btn?.classList.contains('empty');
       if (isEmpty) {
         return;
       }
       currentFilter = filter;
       
-      // Update agency filter button states
-      document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
+      // Update Caddo unit button states.
+      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === filter);
       });
 
@@ -1597,23 +1748,36 @@
     async function loadHistory(date) {
       try {
         const offset = (historyPage - 1) * historyPageSize;
-        const baseUrl = date
-          ? `api/incidents/history?date=${date}`
-          : `api/incidents/history`;
-        const pageUrl = `${baseUrl}&limit=${historyPageSize}&offset=${offset}`;
+        const params = new URLSearchParams();
+        params.set('source', currentSource);
+        if (date) params.set('date', date);
+        params.set('limit', String(historyPageSize));
+        params.set('offset', String(offset));
+        const pageUrl = `api/incidents/history?${params.toString()}`;
         const response = await fetch(pageUrl);
         const data = await response.json();
 
         let incidents = Array.isArray(data.incidents) ? data.incidents : [];
         let total = Number(data.total || 0);
+        incidents.forEach((incident) => {
+          incident.source = normalizeSource(incident?.source);
+        });
 
         // If we need all incidents (for urgency sort OR for showing all on map), fetch them
         const needAllIncidents = currentSort === 'urgency' || showAllHistoryOnMap;
         if (needAllIncidents && total > incidents.length) {
-          const fullUrl = `${baseUrl}&limit=${total}&offset=0`;
+          const fullParams = new URLSearchParams();
+          fullParams.set('source', currentSource);
+          if (date) fullParams.set('date', date);
+          fullParams.set('limit', String(total));
+          fullParams.set('offset', '0');
+          const fullUrl = `api/incidents/history?${fullParams.toString()}`;
           const fullResponse = await fetch(fullUrl);
           const fullData = await fullResponse.json();
           incidents = Array.isArray(fullData.incidents) ? fullData.incidents : incidents;
+          incidents.forEach((incident) => {
+            incident.source = normalizeSource(incident?.source);
+          });
           total = Number(fullData.total || total);
         }
         historyHasAllIncidents = incidents.length >= total;
@@ -1705,14 +1869,14 @@
       }
 
       if (sorted.length === 0) {
-        const hasAgencyFilter = currentFilter !== 'all';
+        const hasAgencyFilter = currentUnitFilterValueForUi() !== 'all';
         const hasUrgencyFilter = currentUrgencyFilter !== 'all';
         
         let filterLabelStr = 'incidents';
         if (hasAgencyFilter && hasUrgencyFilter) {
-          filterLabelStr = `${urgencyLabel(currentUrgencyFilter)} ${filterLabel(currentFilter)} incidents`;
+          filterLabelStr = `${urgencyLabel(currentUrgencyFilter)} ${currentUnitFilterLabelForUi()} incidents`;
         } else if (hasAgencyFilter) {
-          filterLabelStr = `${filterLabel(currentFilter)} incidents`;
+          filterLabelStr = `${currentUnitFilterLabelForUi()} incidents`;
         } else if (hasUrgencyFilter) {
           filterLabelStr = `${urgencyLabel(currentUrgencyFilter)} incidents`;
         }
@@ -1728,7 +1892,11 @@
         return;
       }
 
-      listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
+      if (currentSource === 'all') {
+        listEl.innerHTML = renderSourceGroups(sorted);
+      } else {
+        listEl.innerHTML = sorted.map(inc => createIncidentCard(inc, false)).join('');
+      }
     }
 
     // Inline History date picker (no browser-native date input)
@@ -1767,8 +1935,8 @@
     })();
     const historyCountsByMonth = new Map();
 
-    function monthKeyFromDate(date) {
-      return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+    function monthKeyFromDate(date, source = currentSource) {
+      return `${source}:${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
     }
 
     function isoFromParts(year, monthIndex, day) {
@@ -1792,7 +1960,8 @@
       if (historyCountsByMonth.has(monthKey)) return;
 
       try {
-        const response = await fetch(`api/incidents/history_counts?month=${monthKey}`);
+        const month = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`;
+        const response = await fetch(`api/incidents/history_counts?month=${month}&source=${encodeURIComponent(currentSource)}`);
         if (!response.ok) throw new Error(`History counts request failed: ${response.status}`);
         const data = await response.json();
         const counts = data && typeof data === 'object' ? (data.counts || {}) : {};
@@ -1804,7 +1973,7 @@
     }
 
     function getHistoryCount(isoDate) {
-      const monthKey = isoDate.slice(0, 7);
+      const monthKey = `${currentSource}:${isoDate.slice(0, 7)}`;
       const monthCounts = historyCountsByMonth.get(monthKey);
       return Number(monthCounts?.[isoDate] || 0);
     }
@@ -1944,6 +2113,84 @@
       if (clickedInsidePicker || clickedDateButton) return;
       toggleDatePicker(false);
     });
+
+    function applyLafayetteUnitFilter(unit) {
+      const normalized = String(unit || '').toLowerCase();
+      if (!['all', 'police', 'sheriff'].includes(normalized)) return;
+      const btn = document.querySelector(`.filter-group[data-filter-type="agency-lafayette"] .filter-btn[data-laf-unit="${normalized}"]`);
+      const isEmpty = normalized !== 'all' && btn?.classList.contains('empty');
+      if (isEmpty) return;
+      if (currentLafayetteUnit === normalized) return;
+      currentLafayetteUnit = normalized;
+
+      document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lafUnit === currentLafayetteUnit);
+      });
+
+      refreshFilteredView();
+    }
+
+    function setAgencyButtonView(view) {
+      const normalized = view === 'lafayette' ? 'lafayette' : 'caddo';
+      agencyButtonView = normalized;
+
+      const caddoGroup = document.querySelector('.agency-group-caddo');
+      const lafayetteGroup = document.querySelector('.agency-group-lafayette');
+      if (caddoGroup) caddoGroup.classList.toggle('hidden', normalized !== 'caddo');
+      if (lafayetteGroup) lafayetteGroup.classList.toggle('hidden', normalized !== 'lafayette');
+
+      const controls = document.getElementById('agency-bank-controls');
+      if (controls) {
+        controls.classList.toggle('hidden', currentSource !== 'all');
+      }
+
+      document.querySelectorAll('.agency-bank-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.agencyView === normalized);
+      });
+    }
+
+    function syncAgencyButtonViewToSource() {
+      if (currentSource === 'caddo') {
+        setAgencyButtonView('caddo');
+        return;
+      }
+      if (currentSource === 'lafayette') {
+        setAgencyButtonView('lafayette');
+        return;
+      }
+      // In "All", keep whichever side the user last picked.
+      setAgencyButtonView(agencyButtonView);
+    }
+
+    function applySourceFilter(source) {
+      const normalized = String(source || '').toLowerCase();
+      if (!['all', 'caddo', 'lafayette'].includes(normalized)) return;
+      if (currentSource === normalized) return;
+
+      currentSource = normalized;
+      historyPage = 1;
+      historyCountsByMonth.clear();
+      allHistoryIncidentsForDay = [];
+
+      document.querySelectorAll('.source-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.source === currentSource);
+      });
+      syncAgencyButtonViewToSource();
+
+      const historyPanel = document.getElementById('history-panel');
+      const historyVisible = historyPanel && !historyPanel.classList.contains('hidden');
+      if (historyVisible) {
+        loadHistory(historySelectedDate);
+      } else {
+        updateIncidents();
+      }
+    }
+
+    document.querySelectorAll('.source-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applySourceFilter(btn.dataset.source);
+      });
+    });
     
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -1975,10 +2222,17 @@
       });
     });
     
-    // Agency filter button handlers
-    document.querySelectorAll('.filter-group[data-filter-type="agency"] .filter-btn').forEach(btn => {
+    // Caddo unit filter button handlers
+    document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         applyAgencyFilter(btn.dataset.filter);
+      });
+    });
+
+    // Lafayette unit filter button handlers
+    document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyLafayetteUnitFilter(btn.dataset.lafUnit);
       });
     });
 
@@ -1989,7 +2243,8 @@
       });
     });
 
-    // Sort control
+    // Sort control + agency bank controls
+    const agencyBankButtons = document.querySelectorAll('.agency-bank-btn');
     const sortToggle = document.getElementById('sort-toggle');
     const sortMenu = document.getElementById('sort-menu');
 
@@ -2043,6 +2298,13 @@
       toggleSortMenu(false);
     });
 
+    agencyBankButtons.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (currentSource !== 'all') return;
+        setAgencyButtonView(btn.dataset.agencyView);
+      });
+    });
+
     document.addEventListener('click', (e) => {
       if (!sortMenu?.classList.contains('open')) return;
       if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
@@ -2094,7 +2356,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=2.8.9', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=3.2.91LAbeta', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);
@@ -2104,6 +2366,7 @@
     
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });
+    syncAgencyButtonViewToSource();
     
     // Polling interval (ms). Keep at least 60s to be gentle.
     let pollIntervalMs = 60000;
