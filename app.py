@@ -773,6 +773,7 @@ def process_incidents(incidents, *, source: str = 'caddo'):
     source_default = _normalize_source_name(source)
     conn = db_connect()
     cursor = conn.cursor()
+    has_source_column = _ensure_incidents_source_column(conn)
     now = datetime.now(timezone.utc).isoformat()
     current_hashes = set()
 
@@ -797,7 +798,10 @@ def process_incidents(incidents, *, source: str = 'caddo'):
         
         if existing:
             # Update last_seen
-            cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1, source = ? WHERE hash = ?', (now, incident_source, h))
+            try:
+                cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1, source = ? WHERE hash = ?', (now, incident_source, h))
+            except sqlite3.OperationalError:
+                cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1 WHERE hash = ?', (now, h))
 
             # Opportunistic re-geocode: if we previously fell back (or have no coords),
             # try again using the improved intersection logic. This keeps your DB, but improves
@@ -932,11 +936,18 @@ def process_incidents(incidents, *, source: str = 'caddo'):
             log(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
 
     # Mark incidents no longer in feed as inactive (source-scoped).
-    if source_default == 'caddo':
+    if not has_source_column:
+        if source_default == 'lafayette':
+            active_hashes = []
+        else:
+            cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
+            active_hashes = [row[0] for row in cursor.fetchall()]
+    elif source_default == 'caddo':
         cursor.execute("SELECT hash FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
+        active_hashes = [row[0] for row in cursor.fetchall()]
     else:
         cursor.execute('SELECT hash FROM incidents WHERE is_active = 1 AND source = ?', (source_default,))
-    active_hashes = [row[0] for row in cursor.fetchall()]
+        active_hashes = [row[0] for row in cursor.fetchall()]
 
     for h in active_hashes:
         if h not in current_hashes:
@@ -1000,6 +1011,41 @@ def _normalize_incident_source_for_read(source: str | None) -> str:
     return _normalize_source_name(source or 'caddo')
 
 
+def _incidents_table_has_source_column(cursor: sqlite3.Cursor) -> bool:
+    try:
+        cursor.execute("PRAGMA table_info(incidents)")
+        rows = cursor.fetchall() or []
+    except sqlite3.Error:
+        return False
+    for row in rows:
+        col_name = row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        if str(col_name).strip().lower() == 'source':
+            return True
+    return False
+
+
+def _ensure_incidents_source_column(conn: sqlite3.Connection) -> bool:
+    cursor = conn.cursor()
+    if _incidents_table_has_source_column(cursor):
+        return True
+    try:
+        cursor.execute("ALTER TABLE incidents ADD COLUMN source TEXT DEFAULT 'caddo'")
+        cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)")
+        conn.commit()
+        log("[DB] Added missing incidents.source column at runtime")
+        return True
+    except sqlite3.OperationalError as e:
+        log(f"[DB] Could not add incidents.source column yet: {e}")
+        return False
+
+
+def _incident_matches_source_filter(incident: dict, source_filter: str) -> bool:
+    if source_filter == 'all':
+        return True
+    return _normalize_incident_source_for_read(incident.get('source')) == source_filter
+
+
 # API Routes
 @app.route('/')
 def index():
@@ -1014,15 +1060,22 @@ def get_active_incidents():
     source_filter = _normalize_source_filter(request.args.get('source'))
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
-    if source_filter == 'all':
+    has_source_column = _ensure_incidents_source_column(conn)
+    try:
+        if source_filter == 'all' or not has_source_column:
+            cursor.execute('SELECT * FROM incidents WHERE is_active = 1 ORDER BY time DESC')
+        elif source_filter == 'caddo':
+            cursor.execute("SELECT * FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY time DESC")
+        else:
+            cursor.execute('SELECT * FROM incidents WHERE is_active = 1 AND source = ? ORDER BY time DESC', (source_filter,))
+        incidents = [dict(row) for row in cursor.fetchall()]
+    except sqlite3.OperationalError:
         cursor.execute('SELECT * FROM incidents WHERE is_active = 1 ORDER BY time DESC')
-    elif source_filter == 'caddo':
-        cursor.execute("SELECT * FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY time DESC")
-    else:
-        cursor.execute('SELECT * FROM incidents WHERE is_active = 1 AND source = ? ORDER BY time DESC', (source_filter,))
-    incidents = [dict(row) for row in cursor.fetchall()]
+        incidents = [dict(row) for row in cursor.fetchall()]
     for incident in incidents:
         incident['source'] = _normalize_incident_source_for_read(incident.get('source'))
+    if source_filter != 'all':
+        incidents = [incident for incident in incidents if _incident_matches_source_filter(incident, source_filter)]
     conn.close()
     return jsonify(incidents)
 
@@ -1039,6 +1092,7 @@ def get_history():
     # Query main database
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
+    has_source_column = _ensure_incidents_source_column(conn)
 
     if date:
         bounds = _central_date_bounds_utc(date)
@@ -1049,11 +1103,18 @@ def get_history():
                     'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
                     (start_utc, end_utc)
                 )
-            elif source_filter == 'caddo':
+            elif source_filter == 'caddo' and has_source_column:
                 cursor.execute(
                     "SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY first_seen DESC",
                     (start_utc, end_utc)
                 )
+            elif source_filter == 'caddo':
+                cursor.execute(
+                    'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+                    (start_utc, end_utc)
+                )
+            elif not has_source_column:
+                cursor.execute('SELECT * FROM incidents WHERE 1 = 0')
             else:
                 cursor.execute(
                     'SELECT * FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ? ORDER BY first_seen DESC',
@@ -1065,11 +1126,18 @@ def get_history():
                     'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
                     (start_utc, end_utc)
                 )
-            elif source_filter == 'caddo':
+            elif source_filter == 'caddo' and has_source_column:
                 cursor.execute(
                     "SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')",
                     (start_utc, end_utc)
                 )
+            elif source_filter == 'caddo':
+                cursor.execute(
+                    'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+                    (start_utc, end_utc)
+                )
+            elif not has_source_column:
+                cursor.execute('SELECT 0 as count')
             else:
                 cursor.execute(
                     'SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ?',
@@ -1079,15 +1147,23 @@ def get_history():
     else:
         if source_filter == 'all':
             cursor.execute('SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC')
-        elif source_filter == 'caddo':
+        elif source_filter == 'caddo' and has_source_column:
             cursor.execute("SELECT * FROM incidents WHERE is_active = 0 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') ORDER BY first_seen DESC")
+        elif source_filter == 'caddo':
+            cursor.execute('SELECT * FROM incidents WHERE is_active = 0 ORDER BY first_seen DESC')
+        elif not has_source_column:
+            cursor.execute('SELECT * FROM incidents WHERE 1 = 0')
         else:
             cursor.execute('SELECT * FROM incidents WHERE is_active = 0 AND source = ? ORDER BY first_seen DESC', (source_filter,))
         all_incidents.extend([dict(row) for row in cursor.fetchall()])
         if source_filter == 'all':
             cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
-        elif source_filter == 'caddo':
+        elif source_filter == 'caddo' and has_source_column:
             cursor.execute("SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
+        elif source_filter == 'caddo':
+            cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0')
+        elif not has_source_column:
+            cursor.execute('SELECT 0 as count')
         else:
             cursor.execute('SELECT COUNT(*) as count FROM incidents WHERE is_active = 0 AND source = ?', (source_filter,))
         total += cursor.fetchone()['count']
@@ -1174,6 +1250,7 @@ def get_history_counts():
     # Query main database
     conn = db_connect(row_factory=True)
     cursor = conn.cursor()
+    has_source_column = _ensure_incidents_source_column(conn)
     if bounds:
         start_utc, end_utc = bounds
         if source_filter == 'all':
@@ -1181,11 +1258,18 @@ def get_history_counts():
                 'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
                 (start_utc, end_utc)
             )
-        elif source_filter == 'caddo':
+        elif source_filter == 'caddo' and has_source_column:
             cursor.execute(
                 "SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')",
                 (start_utc, end_utc)
             )
+        elif source_filter == 'caddo':
+            cursor.execute(
+                'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ?',
+                (start_utc, end_utc)
+            )
+        elif not has_source_column:
+            cursor.execute('SELECT first_seen FROM incidents WHERE 1 = 0')
         else:
             cursor.execute(
                 'SELECT first_seen FROM incidents WHERE is_active = 0 AND first_seen >= ? AND first_seen < ? AND source = ?',
