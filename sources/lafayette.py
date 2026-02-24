@@ -62,7 +62,24 @@ def _split_location(value: str | None) -> tuple[str, str, str]:
 
 
 def _normalize_assisting(value: str | None) -> str:
-    return _clean_ws(value).upper()
+    raw = _clean_ws(value).upper()
+    if not raw:
+        return ""
+
+    # Keep only known assisting units in feed order and present consistently.
+    matches = list(re.finditer(r"\b(FIRE|POLICE|SHERIFF)\b", raw))
+    if not matches:
+        return raw
+
+    ordered_units: list[str] = []
+    seen: set[str] = set()
+    for match in matches:
+        unit = match.group(1)
+        if unit in seen:
+            continue
+        seen.add(unit)
+        ordered_units.append(unit)
+    return " / ".join(ordered_units)
 
 
 def scrape(*, user_agent: str, timeout_seconds: int = 15) -> tuple[list[dict], str | None]:

@@ -226,6 +226,9 @@
             <button class="filter-btn" data-laf-unit="sheriff" title="Lafayette Sheriff">
               <img src="images/lafayette-sheriff.png" alt="Lafayette Sheriff" class="filter-logo">
             </button>
+            <button class="filter-btn" data-laf-unit="fire" title="Lafayette Fire">
+              <img src="images/lafayette-fire.png" alt="Lafayette Fire" class="filter-logo">
+            </button>
           </div>
           <!-- Urgency/Severity filters -->
           <div class="filter-group" data-filter-type="urgency">
@@ -725,7 +728,7 @@
     let currentIncidents = [];
     let currentHistoryIncidents = [];
     let currentSource = 'all'; // 'all' | 'caddo' | 'lafayette'
-    let currentLafayetteUnit = 'all'; // 'all' | 'police' | 'sheriff'
+    let currentLafayetteUnit = 'all'; // 'all' | 'police' | 'sheriff' | 'fire'
     let agencyButtonView = 'caddo'; // which button bank is currently visible
     let currentFilter = 'all';  // Agency filter
     let currentUrgencyFilter = 'all';  // Urgency/severity filter
@@ -944,6 +947,29 @@
       return `source=${encodeURIComponent(currentSource)}`;
     }
 
+    function getIncidentAgencyUnits(incident) {
+      const source = normalizeSource(incident?.source);
+      const raw = String(incident?.agency || '').toUpperCase();
+      if (!raw) return [];
+      if (source !== 'lafayette') return [raw];
+
+      const matches = raw.match(/\b(FIRE|POLICE|SHERIFF)\b/g) || [];
+      const ordered = [];
+      for (const unit of matches) {
+        if (!ordered.includes(unit)) ordered.push(unit);
+      }
+      return ordered.length ? ordered : [raw];
+    }
+
+    function formatAgencyDisplay(incident) {
+      const source = normalizeSource(incident?.source);
+      const units = getIncidentAgencyUnits(incident);
+      if (source === 'lafayette') {
+        return units.join(' / ') || 'UNKNOWN';
+      }
+      return String(incident?.agency || 'UNKNOWN');
+    }
+
     function groupIncidentsBySource(incidents) {
       const grouped = new Map([
         ['caddo', []],
@@ -1011,9 +1037,10 @@
       const source = normalizeSource(incident?.source);
       if (source !== 'lafayette') return true;
 
-      const agency = String(incident?.agency || '').toUpperCase();
-      if (uf === 'police') return agency.includes('POLICE');
-      if (uf === 'sheriff') return agency.includes('SHERIFF');
+      const units = getIncidentAgencyUnits(incident);
+      if (uf === 'police') return units.includes('POLICE');
+      if (uf === 'sheriff') return units.includes('SHERIFF');
+      if (uf === 'fire') return units.includes('FIRE');
       return true;
     }
 
@@ -1066,6 +1093,7 @@
       if (agencyButtonView === 'lafayette' || currentSource === 'lafayette') {
         if (value === 'police') return 'lafayette police';
         if (value === 'sheriff') return 'lafayette sheriff';
+        if (value === 'fire') return 'lafayette fire';
         return 'lafayette units';
       }
       return filterLabel(value);
@@ -1134,6 +1162,7 @@
       const lafayetteCounts = {
         police: 0,
         sheriff: 0,
+        fire: 0,
       };
 
       // Urgency counts (considering current unit filters per source)
@@ -1160,6 +1189,7 @@
           } else if (source === 'lafayette') {
             if (matchesLafayetteUnitFilter(inc, 'police')) lafayetteCounts.police += 1;
             if (matchesLafayetteUnitFilter(inc, 'sheriff')) lafayetteCounts.sheriff += 1;
+            if (matchesLafayetteUnitFilter(inc, 'fire')) lafayetteCounts.fire += 1;
           }
         }
 
@@ -1306,6 +1336,7 @@
       const sev = getSeverity(incident);
       const color = getSeverityColor(sev);
       const fillColor = getMarkerFill(sev);
+      const agencyDisplay = formatAgencyDisplay(incident);
       
       const locationParts = [];
       if (incident.street) locationParts.push(incident.street);
@@ -1325,7 +1356,7 @@
           <div class="popup-title">${incident.description}</div>
           <div class="popup-detail">📍 ${locationStr}</div>
           <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
-          <div class="popup-detail">🚨 ${incident.agency} • ${incident.units} unit(s)</div>
+          <div class="popup-detail">🚨 ${agencyDisplay} • ${incident.units} unit(s)</div>
           <div class="popup-detail">⚠️ Severity: ${sev.toUpperCase()}</div>
           <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
       `;
@@ -1425,6 +1456,7 @@
     function createIncidentCard(incident, isNew = false) {
       const sev = getSeverity(incident);
       const sevClass = getSeverityClass(sev);
+      const agencyDisplay = formatAgencyDisplay(incident);
       const hasLocation = hasValidLocation(incident);
       const clickAttr = hasLocation ? ` onclick="focusIncident(${incident.latitude}, ${incident.longitude})"` : '';
       
@@ -1439,7 +1471,7 @@
             📍 ${[incident.street, incident.cross_streets].filter(Boolean).join(' @ ') || 'Unknown'}
           </div>
           <div class="incident-meta">
-            <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${incident.agency}</span>
+            <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${agencyDisplay}</span>
             <span class="incident-units">${sev.toUpperCase()} • ${incident.units} unit(s) • ${incident.municipality}</span>
           </div>
         </div>
@@ -2116,7 +2148,7 @@
 
     function applyLafayetteUnitFilter(unit) {
       const normalized = String(unit || '').toLowerCase();
-      if (!['all', 'police', 'sheriff'].includes(normalized)) return;
+      if (!['all', 'police', 'sheriff', 'fire'].includes(normalized)) return;
       const btn = document.querySelector(`.filter-group[data-filter-type="agency-lafayette"] .filter-btn[data-laf-unit="${normalized}"]`);
       const isEmpty = normalized !== 'all' && btn?.classList.contains('empty');
       if (isEmpty) return;

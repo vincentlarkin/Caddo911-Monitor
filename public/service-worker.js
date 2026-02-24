@@ -11,7 +11,8 @@ const CORE_ASSETS = [
   new URL('./images/spd-police.png', self.location).toString(),
   new URL('./images/cso-sheriff.png', self.location).toString(),
   new URL('./images/lafayette-police.png', self.location).toString(),
-  new URL('./images/lafayette-sheriff.png', self.location).toString()
+  new URL('./images/lafayette-sheriff.png', self.location).toString(),
+  new URL('./images/lafayette-fire.png', self.location).toString()
 ];
 
 self.addEventListener('install', (event) => {
