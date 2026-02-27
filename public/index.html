@@ -147,6 +147,8 @@
               <span class="dot" style="background: var(--red);"></span>
               <span class="dot" style="background: var(--amber);"></span>
               <span class="dot" style="background: var(--blue);"></span>
+              <span class="dot" style="background: var(--green);"></span>
+              <span class="dot" style="background: var(--gray);"></span>
             </div>
           </div>
           
@@ -458,7 +460,6 @@
     const legendContainer = document.getElementById('legend-container');
     const legendPanel = document.getElementById('map-legend');
     const legendCollapse = document.getElementById('legend-collapse');
-    let legendExpandedHeight = null;
 
     function updateHeaderHeight() {
       const header = document.querySelector('.header');
@@ -466,25 +467,10 @@
       document.documentElement.style.setProperty('--header-height', `${header.offsetHeight}px`);
     }
     
-    function measureLegendExpandedHeight() {
-      if (!legendPanel) return;
-      // Ensure height is auto for measurement
-      legendPanel.style.height = '';
-      legendExpandedHeight = legendPanel.offsetHeight;
-    }
-    
     function setLegendCollapsed(collapsed) {
-      if (!legendContainer || !legendPanel) return;
+      if (!legendContainer) return;
       legendContainer.classList.toggle('collapsed', collapsed);
-      
-      // Keep the same height (drawer closes horizontally only)
-      if (collapsed && legendExpandedHeight) {
-        legendPanel.style.height = `${legendExpandedHeight}px`;
-      } else {
-        legendPanel.style.height = '';
-        // When expanding, refresh measured height for the current layout
-        requestAnimationFrame(measureLegendExpandedHeight);
-      }
+      if (legendPanel) legendPanel.style.height = '';
       
       if (legendCollapse) {
         legendCollapse.setAttribute('aria-expanded', String(!collapsed));
@@ -494,8 +480,8 @@
       }
     }
     
-    // Initial measurement (expanded state), then optionally collapse for smaller screens
-    measureLegendExpandedHeight();
+    // Initial setup, then optionally collapse for smaller screens
+    if (legendPanel) legendPanel.style.height = '';
     updateHeaderHeight();
     if (window.innerWidth < 960) setLegendCollapsed(true);
     
@@ -504,12 +490,9 @@
       setLegendCollapsed(!isCollapsed);
     });
     
-    // Keep measurements accurate if the layout changes
+    // Keep layout-derived vars accurate on resize
     window.addEventListener('resize', () => {
       updateHeaderHeight();
-      if (!legendContainer?.classList.contains('collapsed')) {
-        measureLegendExpandedHeight();
-      }
     });
     window.addEventListener('load', updateHeaderHeight);
     

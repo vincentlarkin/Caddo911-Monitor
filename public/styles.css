@@ -254,11 +254,11 @@
     
     .legend-collapse {
       position: absolute;
-      top: 7px;
-      right: 7px;
-      width: 22px;
-      height: 22px;
-      border-radius: 8px;
+      top: 6px;
+      right: 6px;
+      width: 19px;
+      height: 19px;
+      border-radius: 6px;
       border: 1px solid rgba(255, 255, 255, 0.10);
       background: var(--bg-card);
       color: var(--text-dim);
@@ -266,7 +266,7 @@
       transition: all 0.2s ease;
       display: grid;
       place-items: center;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1;
     }
     
@@ -284,34 +284,89 @@
       border: 1px solid var(--border);
       box-shadow: 0 12px 40px rgba(0,0,0,0.4);
       width: 240px;
-      transition: width 0.22s ease, padding 0.22s ease;
+      transition:
+        width 0.24s cubic-bezier(0.2, 0, 0, 1),
+        padding 0.24s cubic-bezier(0.2, 0, 0, 1),
+        border-radius 0.2s ease;
       position: relative;
+      overflow: hidden;
+      will-change: width, padding;
     }
     
     .legend-content {
       padding-right: 32px; /* keep space for the collapse arrow */
+      max-height: 420px;
+      overflow: hidden;
+      opacity: 1;
+      transform: translateX(0);
+      visibility: visible;
+      transition:
+        max-height 0.18s ease 0.02s,
+        opacity 0.12s ease 0.08s,
+        transform 0.2s ease 0.05s,
+        visibility 0s linear 0s;
     }
     
     .legend-mini {
-      display: none;
-      height: 100%;
-      width: 100%;
-      padding-top: 34px;
-      justify-content: flex-start;
-      align-items: center;
+      position: absolute;
+      top: 31px;
+      left: 50%;
+      display: flex;
+      height: auto;
+      width: auto;
+      padding: 0;
+      justify-content: center;
+      align-items: flex-start;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translate(-50%, 6px) scale(0.95);
+      transition:
+        opacity 0.14s ease,
+        transform 0.2s ease,
+        visibility 0s linear 0.2s;
+    }
+
+    .legend-mini .dot-stack {
+      gap: 4px;
+    }
+
+    .legend-mini .dot {
+      width: 6px;
+      height: 6px;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
     }
     
     .legend-container.collapsed .map-overlay {
-      width: 50px;
-      padding: 9px 7px;
+      width: 34px;
+      padding: 28px 6px 8px;
+      border-radius: 12px;
+      height: auto;
+      min-height: 70px;
     }
     
     .legend-container.collapsed .legend-content {
-      display: none;
+      max-height: 0;
+      padding-right: 0;
+      opacity: 0;
+      transform: translateX(-10px);
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        max-height 0.1s ease,
+        opacity 0.08s ease,
+        transform 0.12s ease,
+        visibility 0s linear 0.12s;
     }
     
     .legend-container.collapsed .legend-mini {
-      display: flex;
+      opacity: 1;
+      visibility: visible;
+      transform: translate(-50%, 0) scale(1);
+      transition:
+        opacity 0.14s ease 0.06s,
+        transform 0.2s ease 0.04s,
+        visibility 0s linear 0s;
     }
     
     .map-overlay h3 {
