@@ -1,6 +1,6 @@
-# Caddo 911 Live Feed (with Lafayette Beta)
+# Caddo 911 Live Feed (Multi-Source)
 
-Real-time incident tracker for Caddo Parish and Lafayette traffic incidents with an interactive map and live/history views.
+Real-time incident tracker for Caddo Parish, Baton Rouge traffic incidents, and Lafayette traffic incidents with an interactive map and live/history views.
 
 ![Dashboard](https://img.shields.io/badge/Status-Live-red) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![License](https://img.shields.io/badge/License-Proprietary-orange)
 
@@ -8,9 +8,9 @@ Real-time incident tracker for Caddo Parish and Lafayette traffic incidents with
 
 ## What It Does
 
-- **Scrapes** the official [Caddo 911 Active Events](https://ias.ecc.caddo911.com/All_ActiveEvents.aspx) feed and Lafayette's traffic feed every cycle
+- **Scrapes** the official [Caddo 911 Active Events](https://ias.ecc.caddo911.com/All_ActiveEvents.aspx) feed, Baton Rouge's traffic incident feed, and Lafayette's traffic feed every cycle
 - **Displays** incidents on an interactive dark-themed map with color-coded markers
-- **Supports source tabs**: `All`, `Caddo`, and `Lafayette (Beta)` in both Live and History views
+- **Supports source tabs**: `All`, `Caddo`, `Baton Rouge`, and `Lafayette (Beta)` in both Live and History views
 - **Groups incidents by source** in `All` mode (not interleaved)
 - **Filters** by agency and urgency/severity
 - **Caches** incidents to SQLite for live + historical views
@@ -118,7 +118,7 @@ This repo also includes wiki pages in `wiki/`:
 
 ## How It Works
 
-1. **Scraping**: Uses source adapters in `sources/` (`caddo` + `lafayette`) to fetch and normalize incidents into one shared data shape.
+1. **Scraping**: Uses source adapters in `sources/` (`caddo` + `batonrouge` + `lafayette`) to fetch and normalize incidents into one shared data shape.
 2. **Deduplication**: Each incident gets a source-aware hash based on source, agency, time, description, and location.
 3. **Geocoding**: Cross streets are prioritized over street names for more accurate intersection placement. Uses ArcGIS first and falls back to OpenStreetMap's Nominatim.
 4. **Storage**: Incidents stored in `caddo911.db` (SQLite) with source, timestamps, and active/inactive status.
@@ -144,6 +144,8 @@ This app currently ingests from:
 
 - Caddo Parish 911 Communications District public feed:  
   `https://ias.ecc.caddo911.com/All_ActiveEvents.aspx`
+- City of Baton Rouge traffic incidents page:  
+  `https://city.brla.gov/traffic/incidents.asp`
 - Lafayette Parish traffic feed endpoint (beta integration):  
   `https://lafayette911.org/wp-json/traffic-feed/v1/data`
 
@@ -153,6 +155,7 @@ This app currently ingests from:
 |------|---------|
 | `app.py` | Flask server, scraper, scheduler |
 | `sources/caddo.py` | Caddo source adapter |
+| `sources/batonrouge.py` | Baton Rouge source adapter |
 | `sources/lafayette.py` | Lafayette source adapter |
 | `public/index.html` | Dashboard UI with map + filters |
 | `public/styles.css` | Frontend styling |
@@ -165,7 +168,7 @@ This app currently ingests from:
 ## Tips
 
 - **Geocoding improves over time**: The app stores geocode metadata and can re-geocode low-quality points automatically as new scrapes arrive (no DB wipe required).
-- **Choose source scope**: Use `All`, `Caddo`, or `Lafayette (Beta)` to control which feed is visible.
+- **Choose source scope**: Use `All`, `Caddo`, `Baton Rouge`, or `Lafayette (Beta)` to control which feed is visible.
 - **Filter incidents**: Use filter buttons to focus on agency types and urgency/severity.
 - **Historical view**: Switch to "History" tab and select a date to browse past incidents
 

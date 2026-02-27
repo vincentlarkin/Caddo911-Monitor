@@ -20,6 +20,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from zoneinfo import ZoneInfo
 from sources import caddo as caddo_source
 from sources import lafayette as lafayette_source
+from sources import batonrouge as batonrouge_source
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 
@@ -199,7 +200,7 @@ def _init_archive_db(path: str) -> None:
 # Scraper/status metadata
 SCRAPE_INTERVAL_SECONDS_DEFAULT = 60
 feed_refreshed_at: str | None = None  # backwards-compatible: Caddo refresh text
-feed_refreshed_by_source: dict[str, str | None] = {"caddo": None, "lafayette": None}
+feed_refreshed_by_source: dict[str, str | None] = {"caddo": None, "lafayette": None, "batonrouge": None}
 last_scrape_started_at: str | None = None  # ISO UTC
 last_scrape_finished_at: str | None = None  # ISO UTC
 
@@ -598,6 +599,15 @@ SOURCE_GEO_PROFILES = {
         "center_lon": -92.0198,
         "default_city": "Lafayette",
     },
+    "batonrouge": {
+        "lat_min": 30.20,
+        "lat_max": 30.75,
+        "lon_min": -91.45,
+        "lon_max": -90.95,
+        "center_lat": 30.4515,
+        "center_lon": -91.1871,
+        "default_city": "Baton Rouge",
+    },
 }
 
 
@@ -855,6 +865,17 @@ def scrape_lafayette_incidents():
         return [], None
 
 
+def scrape_batonrouge_incidents():
+    """Scrape active incidents from Baton Rouge traffic feed."""
+    try:
+        return batonrouge_source.scrape(user_agent=SCRAPER_USER_AGENT, timeout_seconds=15)
+    except Exception as e:
+        log(f"Baton Rouge scraping error: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], None
+
+
 # Backwards compatibility for any old call sites.
 def scrape_incidents():
     return scrape_caddo_incidents()
@@ -1037,7 +1058,7 @@ def process_incidents(incidents, *, source: str = 'caddo'):
 
     # Mark incidents no longer in feed as inactive (source-scoped).
     if not has_source_column:
-        if source_default == 'lafayette':
+        if source_default != 'caddo':
             active_hashes = []
         else:
             cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
@@ -1081,6 +1102,7 @@ def background_scrape():
 
     source_jobs = [
         ('caddo', 'Caddo 911', scrape_caddo_incidents),
+        ('batonrouge', 'Baton Rouge Traffic', scrape_batonrouge_incidents),
         ('lafayette', 'Lafayette 911 (beta)', scrape_lafayette_incidents),
     ]
     for source_name, label, scraper in source_jobs:
@@ -1097,7 +1119,7 @@ def background_scrape():
     meta_set('last_scrape_finished_at', last_scrape_finished_at)
 
 
-VALID_SOURCES = {'caddo', 'lafayette'}
+VALID_SOURCES = {'caddo', 'lafayette', 'batonrouge'}
 
 
 def _normalize_source_filter(value: str | None) -> str:
@@ -1308,7 +1330,7 @@ def get_history():
                             total += int(count_row['count']) if count_row else 0
                         except sqlite3.OperationalError:
                             # Legacy archives without source column are Caddo-only.
-                            if source_filter == 'lafayette':
+                            if source_filter != 'caddo':
                                 rows = []
                             else:
                                 archive_cursor.execute(
@@ -1407,7 +1429,7 @@ def get_history_counts():
                         )
                 except sqlite3.OperationalError:
                     # Legacy archive DBs are Caddo-only and have no source column.
-                    if source_filter == 'lafayette':
+                    if source_filter != 'caddo':
                         archive_conn.close()
                         continue
                     archive_cursor.execute(
@@ -1470,6 +1492,7 @@ def get_status():
         'feed_refreshed_at',
         'feed_refreshed_at_caddo',
         'feed_refreshed_at_lafayette',
+        'feed_refreshed_at_batonrouge',
         'last_scrape_started_at',
         'last_scrape_finished_at',
         'scrape_interval_seconds',
@@ -1486,6 +1509,7 @@ def get_status():
     refreshed_by_source = {
         'caddo': meta.get('feed_refreshed_at_caddo') or feed_refreshed_by_source.get('caddo'),
         'lafayette': meta.get('feed_refreshed_at_lafayette') or feed_refreshed_by_source.get('lafayette'),
+        'batonrouge': meta.get('feed_refreshed_at_batonrouge') or feed_refreshed_by_source.get('batonrouge'),
     }
 
     return jsonify({
@@ -1520,6 +1544,7 @@ def force_refresh():
         total_count = 0
         for source_name, scraper in (
             ('caddo', scrape_caddo_incidents),
+            ('batonrouge', scrape_batonrouge_incidents),
             ('lafayette', scrape_lafayette_incidents),
         ):
             incidents, refreshed_at_text = scraper()
@@ -1535,6 +1560,7 @@ def force_refresh():
             'feedRefreshedBySource': {
                 'caddo': feed_refreshed_by_source.get('caddo'),
                 'lafayette': feed_refreshed_by_source.get('lafayette'),
+                'batonrouge': feed_refreshed_by_source.get('batonrouge'),
             },
         })
     except Exception as e:
