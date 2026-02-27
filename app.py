@@ -28,6 +28,7 @@ DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
 
 # Archive settings: incidents older than this many days get moved to monthly archive DBs
 ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))
+BACKUP_RETENTION_WEEKS = int(os.environ.get('CADDO911_BACKUP_RETENTION_WEEKS', '5'))
 
 def _get_archive_dir() -> str:
     """Get the directory where archive DBs are stored (same dir as main DB)."""
@@ -48,6 +49,105 @@ def _list_archive_dbs() -> list[str]:
         for f in os.listdir(archive_dir) 
         if f.startswith('caddo911_archive_') and f.endswith('.db')
     ])
+
+def _get_backup_dir() -> str:
+    """Directory where periodic backup snapshots are written."""
+    configured = os.environ.get('CADDO911_BACKUP_DIR', '').strip()
+    if configured:
+        return configured
+    return os.path.join(_get_archive_dir(), "backups")
+
+def _backup_label_for_path(path: str) -> str:
+    """Stable label for backup file naming."""
+    abs_target = os.path.abspath(path)
+    abs_main = os.path.abspath(DB_PATH)
+    if abs_target == abs_main:
+        return "main"
+    base = os.path.splitext(os.path.basename(path))[0]
+    return re.sub(r"[^a-zA-Z0-9_-]+", "_", base).strip("_") or "db"
+
+def _sqlite_hot_backup(src_path: str, dst_path: str) -> None:
+    """
+    SQLite-consistent snapshot copy using the built-in backup API.
+    Safer than raw file copies when WAL is enabled.
+    """
+    src_conn = sqlite3.connect(src_path, timeout=30, check_same_thread=False)
+    dst_conn = sqlite3.connect(dst_path, timeout=30, check_same_thread=False)
+    try:
+        src_conn.execute("PRAGMA busy_timeout = 5000;")
+        src_conn.backup(dst_conn)
+        dst_conn.commit()
+    finally:
+        try:
+            dst_conn.close()
+        except Exception:
+            pass
+        try:
+            src_conn.close()
+        except Exception:
+            pass
+
+def _prune_old_backups(backup_dir: str) -> list[str]:
+    """
+    Keep only N weekly backups per database label if retention is set.
+    Returns a list of deleted files.
+    """
+    keep = int(BACKUP_RETENTION_WEEKS)
+    if keep <= 0 or not os.path.isdir(backup_dir):
+        return []
+    grouped: dict[str, list[str]] = {}
+    for name in os.listdir(backup_dir):
+        if not name.endswith(".db"):
+            continue
+        full = os.path.join(backup_dir, name)
+        if not os.path.isfile(full):
+            continue
+        # Format: <label>_YYYYMMDD_HHMMSS.db
+        m = re.match(r"^(?P<label>.+)_\d{8}_\d{6}\.db$", name)
+        if not m:
+            continue
+        label = m.group("label")
+        grouped.setdefault(label, []).append(full)
+    removed: list[str] = []
+    for _, files in grouped.items():
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        for stale in files[keep:]:
+            try:
+                os.remove(stale)
+                removed.append(stale)
+            except Exception:
+                pass
+    return removed
+
+def create_backup_snapshot(*, include_archives: bool = True) -> dict:
+    """
+    Create timestamped SQLite backups.
+    - Always includes the main DB.
+    - Optionally includes archive DBs.
+    """
+    backup_dir = _get_backup_dir()
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    targets = [DB_PATH]
+    if include_archives:
+        targets.extend(_list_archive_dbs())
+    created: list[str] = []
+    skipped: list[str] = []
+    for src in targets:
+        if not os.path.exists(src):
+            skipped.append(src)
+            continue
+        label = _backup_label_for_path(src)
+        out_path = os.path.join(backup_dir, f"{label}_{stamp}.db")
+        _sqlite_hot_backup(src, out_path)
+        created.append(out_path)
+    removed = _prune_old_backups(backup_dir)
+    return {
+        "created": created,
+        "skipped": skipped,
+        "removed": removed,
+        "backup_dir": backup_dir,
+    }
 
 def _archive_db_connect(path: str, *, row_factory: bool = False) -> sqlite3.Connection:
     """Connect to an archive database."""
@@ -164,7 +264,6 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_active ON incidents(is_active)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
 
     # Add geocoding metadata columns (safe to run on an existing DB; does NOT delete data)
     # Note: SQLite doesn't support ADD COLUMN IF NOT EXISTS in older versions, so we try/except.
@@ -182,6 +281,7 @@ def init_db():
 
     # Backfill legacy rows that predate multi-source support.
     cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
 
     # Metadata table (shared across collector + web processes)
     cursor.execute('''
@@ -1452,8 +1552,29 @@ def _background_archive():
     except Exception as e:
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Archive error: {e}")
 
+def _background_weekly_backup():
+    """Background task to create weekly SQLite backup snapshots."""
+    try:
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Running weekly backup snapshot...")
+        result = create_backup_snapshot(include_archives=True)
+        created = len(result["created"])
+        removed = len(result["removed"])
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Backup complete: "
+            f"{created} file(s) created in {result['backup_dir']}"
+            + (f", {removed} old backup(s) pruned" if removed else "")
+        )
+    except Exception as e:
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Weekly backup error: {e}")
 
-def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, initial_scrape: bool = True, enable_archive: bool = True) -> BackgroundScheduler:
+
+def start_collector(
+    *,
+    interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT,
+    initial_scrape: bool = True,
+    enable_archive: bool = True,
+    enable_weekly_backup: bool = True,
+) -> BackgroundScheduler:
     """Start background scraping + DB persistence, return the scheduler."""
     global scrape_interval_seconds
     scrape_interval_seconds = int(interval_seconds)
@@ -1492,6 +1613,20 @@ def start_collector(*, interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT, 
             id='archive_job',
         )
         log(f"[CADDO 911] Daily archive scheduled for 3:00 AM Central")
+
+    # Weekly snapshot backup - Sunday night (Central)
+    if enable_weekly_backup:
+        scheduler.add_job(
+            _background_weekly_backup,
+            'cron',
+            day_of_week='sun',
+            hour=23,
+            minute=30,
+            max_instances=1,
+            coalesce=True,
+            id='weekly_backup_job',
+        )
+        log("[CADDO 911] Weekly backup scheduled for Sundays at 11:30 PM Central")
     
     scheduler.start()
     return scheduler
@@ -1526,12 +1661,24 @@ def _read_key_nonblocking() -> str | None:
         return None
     return None
 
-def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_interval_seconds: int = 60, enable_archive: bool = True) -> None:
+def run_interactive_mode(
+    *,
+    host: str = '0.0.0.0',
+    port: int = 3911,
+    scrape_interval_seconds: int = 60,
+    enable_archive: bool = True,
+    enable_weekly_backup: bool = True,
+) -> None:
     """
     Start in 'event gather' mode (collector only), and allow starting the web UI on demand.
     Press '2' to start the web UI. Press 'q' to quit.
     """
-    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True, enable_archive=enable_archive)
+    scheduler = start_collector(
+        interval_seconds=scrape_interval_seconds,
+        initial_scrape=True,
+        enable_archive=enable_archive,
+        enable_weekly_backup=enable_weekly_backup,
+    )
     web_thread: Thread | None = None
 
     log("[CADDO 911] Event gather mode is running (collector only).")
@@ -1561,9 +1708,19 @@ def run_interactive_mode(*, host: str = '0.0.0.0', port: int = 3911, scrape_inte
             pass
         log("[CADDO 911] Collector stopped.")
 
-def run_gather_mode(*, scrape_interval_seconds: int = 60, enable_archive: bool = True) -> None:
+def run_gather_mode(
+    *,
+    scrape_interval_seconds: int = 60,
+    enable_archive: bool = True,
+    enable_weekly_backup: bool = True,
+) -> None:
     """Collector-only mode. No web server, just keeps filling the DB."""
-    scheduler = start_collector(interval_seconds=scrape_interval_seconds, initial_scrape=True, enable_archive=enable_archive)
+    scheduler = start_collector(
+        interval_seconds=scrape_interval_seconds,
+        initial_scrape=True,
+        enable_archive=enable_archive,
+        enable_weekly_backup=enable_weekly_backup,
+    )
     log("[CADDO 911] Collector-only mode running. Press Ctrl+C to stop.")
     try:
         while True:
@@ -1691,6 +1848,22 @@ def run_archive(*, dry_run: bool = False) -> None:
     else:
         log(f"[ARCHIVE] Done. Archived {result['archived']} incidents.")
 
+def run_backup(*, include_archives: bool = True) -> None:
+    """Run a one-time SQLite backup snapshot."""
+    init_db()
+    result = create_backup_snapshot(include_archives=include_archives)
+    created = result['created']
+    skipped = result['skipped']
+    removed = result['removed']
+    if created:
+        log(f"[BACKUP] Created {len(created)} backup file(s) in {result['backup_dir']}")
+    else:
+        log(f"[BACKUP] No backup files created (check paths/permissions).")
+    if skipped:
+        log(f"[BACKUP] Skipped missing DBs: {len(skipped)}")
+    if removed:
+        log(f"[BACKUP] Pruned {len(removed)} old backup file(s)")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Caddo 911 Live Feed")
@@ -1706,6 +1879,9 @@ def main() -> None:
     parser.add_argument("--archive", action="store_true", help=f"archive incidents older than {ARCHIVE_AFTER_DAYS} days to monthly DBs, then exit")
     parser.add_argument("--archive-dry-run", action="store_true", help="like --archive but don't move anything (preview only)")
     parser.add_argument("--no-auto-archive", action="store_true", help="disable daily automatic archiving (3 AM Central)")
+    parser.add_argument("--backup", action="store_true", help="create a one-time SQLite backup snapshot, then exit")
+    parser.add_argument("--backup-main-only", action="store_true", help="when used with --backup, only back up the main DB (skip archive DBs)")
+    parser.add_argument("--no-auto-backup", action="store_true", help="disable weekly automatic backup snapshots (Sunday 11:30 PM Central)")
     args = parser.parse_args()
 
     global QUIET
@@ -1721,19 +1897,40 @@ def main() -> None:
         run_regeocode(dry_run=args.regeocode_dry_run, limit=args.regeocode_limit)
         return
 
+    # Handle one-time backup mode
+    if args.backup:
+        run_backup(include_archives=not args.backup_main_only)
+        return
+
     # Store archive preference for start_collector
     enable_archive = not args.no_auto_archive
+    enable_weekly_backup = not args.no_auto_backup
 
     if args.mode == "gather":
-        run_gather_mode(scrape_interval_seconds=args.interval, enable_archive=enable_archive)
+        run_gather_mode(
+            scrape_interval_seconds=args.interval,
+            enable_archive=enable_archive,
+            enable_weekly_backup=enable_weekly_backup,
+        )
         return
 
     if args.mode == "interactive":
-        run_interactive_mode(host=args.host, port=args.port, scrape_interval_seconds=args.interval, enable_archive=enable_archive)
+        run_interactive_mode(
+            host=args.host,
+            port=args.port,
+            scrape_interval_seconds=args.interval,
+            enable_archive=enable_archive,
+            enable_weekly_backup=enable_weekly_backup,
+        )
         return
 
     # serve mode: collector + web UI immediately
-    scheduler = start_collector(interval_seconds=args.interval, initial_scrape=True, enable_archive=enable_archive)
+    scheduler = start_collector(
+        interval_seconds=args.interval,
+        initial_scrape=True,
+        enable_archive=enable_archive,
+        enable_weekly_backup=enable_weekly_backup,
+    )
     try:
         run_webserver(host=args.host, port=args.port)
     except KeyboardInterrupt:

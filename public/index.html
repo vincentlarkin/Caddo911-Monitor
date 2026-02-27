@@ -312,8 +312,13 @@
       zoomControl: false,
       minZoom: 7,
       maxZoom: 19,
-      worldCopyJump: true
+      worldCopyJump: true,
+      preferCanvas: true,
+      fadeAnimation: false,
+      zoomAnimation: false,
+      markerZoomAnimation: false
     }).setView([32.5252, -93.7502], 11);
+    const markerRenderer = L.canvas({ padding: 0.5 });
     
     // Keep view constrained to a few-state window around Louisiana/Texas/Arkansas
     const southWest = L.latLng(29.0, -98.0);
@@ -742,6 +747,17 @@
     const historyPageSize = 35;
     let historyTotal = 0;
     let historyHasAllIncidents = false;
+    let lastLiveListSignature = '';
+    let lastHistoryListSignature = '';
+    const caddoFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn'));
+    const lafayetteFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn'));
+    const urgencyFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn'));
+
+    function buildIncidentListSignature(incidents, keyPrefix = '') {
+      const items = Array.isArray(incidents) ? incidents : [];
+      const base = items.map((inc) => `${inc.id}:${inc.time || ''}:${inc.units || ''}:${inc.source || ''}`).join('|');
+      return `${keyPrefix}|${base}`;
+    }
     
     // Agency color mapping
     function getAgencyColor(agency) {
@@ -779,87 +795,72 @@
       return false;
     }
 
-    function getSeverity(incident) {
-      const d = _normalizeDesc(incident?.description);
-      const agency = String(incident?.agency || '').toUpperCase();
-
-      const CUSTODY = [
-        'prisoner',
-      ];
-
-      const MEDICAL_EMERGENCY = [
-        'medical emergency',
-        'caddo ems event',
-      ];
-
-      const SERVICE = [
-        'special event stand by',
-        'public service',
-      ];
-
-      // Explicit low-priority / administrative / follow-up type calls
-      const LOW = [
+    const SEVERITY_TERMS = {
+      custody: ['prisoner'],
+      medical: ['medical emergency', 'caddo ems event'],
+      service: ['special event stand by', 'public service'],
+      low: [
         'deliver message', 'prisoner medical security', 'periodic check', 'taken by other agency',
         'follow up', 'followup', 'follow', 'investigation', 'report', 'information',
         'citizen assist', 'citizen assistance', 'assist citizen', 'civil',
         'welfare check', 'wellness check', 'property check', 'extra patrol', 'directed patrol',
         'noise', 'complaint', 'parking', 'traffic control', 'traffic stop',
         'lost property', 'found property',
-      ];
-
-      // High-severity life safety / violence / weapons / fire / critical medical
-      const HIGH = [
-        // Violence / weapons
+      ],
+      high: [
         'shots fired', 'shooting', 'shot fired', 'gun', 'armed', 'weapon',
         'stabbing', 'stab', 'knife',
         'assault', 'battery', 'domestic', 'fight',
         'robbery', 'home invasion', 'kidnap', 'hostage',
         'homicide', 'murder', 'rape', 'sexual',
-        // Crime (treat as high priority)
         'theft', 'burglary', 'vehicle burglary', 'break in', 'breaking entering',
-        // Fire
         'structure fire', 'house fire', 'apartment fire', 'building fire',
         'fire', 'smoke', 'explosion',
-        // Medical
         'medical', 'ems', 'unconscious', 'not breathing', 'difficulty breathing', 'choking',
         'overdose', 'cardiac', 'heart', 'stroke', 'seizure',
-        // Traffic (serious)
         'hit and run', 'hit run', 'injury accident', 'accident with injuries', 'fatal', 'entrap', 'rollover',
-      ];
-
-      // Medium-severity incidents (default bucket if not high/low)
-      const MEDIUM = [
-        // Theft / property crime
+      ],
+      medium: [
         'stolen', 'shoplift', 'vandal',
-        // Traffic / hazard
         'accident', 'crash', 'wreck', 'collision', 'mvc', 'mva',
         'road hazard', 'debris', 'disabled vehicle',
-        // Animals
         'loose livestock', 'livestock', 'loose animal', 'animal in roadway', 'cow', 'horse',
-        // General police calls
         'disturbance', 'suspicious', 'trespass', 'harassment', 'fraud', 'alarm',
         'juvenile complaint',
-      ];
+      ],
+    };
 
-      // Special-cases: "minor accident" should not be treated like a high-priority crime call.
+    function getSeverity(incident) {
+      if (!incident || typeof incident !== 'object') return 'medium';
+      if (incident._severity) return incident._severity;
+
+      const d = _normalizeDesc(incident.description);
+      const agency = String(incident.agency || '').toUpperCase();
+
       if (d.includes('minor accident') || d.includes('minor crash') || d.includes('fender bender')) {
-        return 'low';
+        incident._severity = 'low';
+        return incident._severity;
       }
 
-      if (_includesAny(d, CUSTODY)) return 'custody';
-      if (agency === 'EMS' || agency.includes('EMS')) return 'medical';
-      if (_includesAny(d, MEDICAL_EMERGENCY)) return 'medical';
-      if (_includesAny(d, SERVICE)) return 'service';
-      if (_includesAny(d, HIGH)) return 'high';
-      if (_includesAny(d, LOW)) return 'low';
-      if (_includesAny(d, MEDIUM)) return 'medium';
-
-      // If we can't classify: default to medium (safer than understating severity).
-      // EMS agency tends to be life-safety oriented.
-      if (agency === 'EMS' || agency.includes('EMS')) {
-        return 'high';
+      if (_includesAny(d, SEVERITY_TERMS.custody)) {
+        incident._severity = 'custody';
+      } else if (agency === 'EMS' || agency.includes('EMS')) {
+        incident._severity = 'medical';
+      } else if (_includesAny(d, SEVERITY_TERMS.medical)) {
+        incident._severity = 'medical';
+      } else if (_includesAny(d, SEVERITY_TERMS.service)) {
+        incident._severity = 'service';
+      } else if (_includesAny(d, SEVERITY_TERMS.high)) {
+        incident._severity = 'high';
+      } else if (_includesAny(d, SEVERITY_TERMS.low)) {
+        incident._severity = 'low';
+      } else if (_includesAny(d, SEVERITY_TERMS.medium)) {
+        incident._severity = 'medium';
+      } else {
+        incident._severity = (agency === 'EMS' || agency.includes('EMS')) ? 'high' : 'medium';
       }
-      return 'medium';
+
+      return incident._severity;
     }
 
     function getSeverityClass(sev) {
@@ -877,60 +878,7 @@
       return '#ffb830';
     }
 
-    const MARKER_PATTERN_IDS = {
-      medical: 'marker-pattern-medical',
-      custody: 'marker-pattern-custody',
-    };
-
-    function ensureMarkerPatterns() {
-      const overlay = map.getPanes().overlayPane;
-      const svg = overlay ? overlay.querySelector('svg') : null;
-      if (!svg) return;
-
-      let defs = svg.querySelector('defs');
-      if (!defs) {
-        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-        svg.insertBefore(defs, svg.firstChild);
-      }
-
-      const ns = 'http://www.w3.org/2000/svg';
-      const ensurePattern = (id, { primary, secondary }) => {
-        if (defs.querySelector(`#${id}`)) return;
-        const pattern = document.createElementNS(ns, 'pattern');
-        pattern.setAttribute('id', id);
-        pattern.setAttribute('patternUnits', 'userSpaceOnUse');
-        pattern.setAttribute('width', '12');
-        pattern.setAttribute('height', '12');
-        pattern.setAttribute('patternTransform', 'rotate(135)');
-
-        const bg = document.createElementNS(ns, 'rect');
-        bg.setAttribute('width', '12');
-        bg.setAttribute('height', '12');
-        bg.setAttribute('fill', secondary);
-        pattern.appendChild(bg);
-
-        const stripe = document.createElementNS(ns, 'rect');
-        stripe.setAttribute('width', '6');
-        stripe.setAttribute('height', '12');
-        stripe.setAttribute('fill', primary);
-        pattern.appendChild(stripe);
-
-        defs.appendChild(pattern);
-      };
-
-      ensurePattern(MARKER_PATTERN_IDS.medical, {
-        primary: 'rgba(255, 59, 59, 0.45)',
-        secondary: 'rgba(255, 255, 255, 0.18)',
-      });
-      ensurePattern(MARKER_PATTERN_IDS.custody, {
-        primary: 'rgba(154, 160, 170, 0.55)',
-        secondary: 'rgba(255, 255, 255, 0.16)',
-      });
-    }
-
     function getMarkerFill(sev) {
-      if (sev === 'medical') return `url(#${MARKER_PATTERN_IDS.medical})`;
-      if (sev === 'custody') return `url(#${MARKER_PATTERN_IDS.custody})`;
       return getSeverityColor(sev);
     }
 
@@ -1215,7 +1163,7 @@
       // Always show filter "tabs" even when they have 0 incidents.
       // Visually dim them so users understand they’re empty, but still allow clicking
       // (the list will show a "No incidents" message).
-      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
+      caddoFilterButtons.forEach(btn => {
         const f = btn.dataset.filter;
         if (f === 'all') {
           btn.dataset.count = '';
@@ -1226,7 +1174,7 @@
         btn.dataset.count = String(count);
         btn.classList.toggle('empty', count === 0);
       });
-      document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+      lafayetteFilterButtons.forEach(btn => {
         const unit = btn.dataset.lafUnit;
         if (unit === 'all') {
           btn.dataset.count = '';
@@ -1239,7 +1187,7 @@
       });
 
       // Update urgency filter buttons
-      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+      urgencyFilterButtons.forEach(btn => {
         const u = btn.dataset.urgency;
         if (u === 'all') {
           btn.dataset.count = '';
@@ -1265,13 +1213,13 @@
       }
 
       // Keep active state consistent (especially after fallback)
-      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
+      caddoFilterButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === currentFilter);
       });
-      document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+      lafayetteFilterButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.lafUnit === currentLafayetteUnit);
       });
-      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+      urgencyFilterButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.urgency === currentUrgencyFilter);
       });
     }
@@ -1359,8 +1307,6 @@
       const points = _triangleLatLngs(incident.latitude, incident.longitude, sizeMeters, seed);
       const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
       
-      const hasPattern = sev === 'medical' || sev === 'custody';
-      
       // Build popup content - add "Go to page" link for history mode when showing all incidents
       let popupHtml = `
         <div class="popup-content">
@@ -1380,21 +1326,18 @@
       popupHtml += `</div>`;
       
       const marker = L.polygon(points, {
+        renderer: markerRenderer,
         color,
         weight: mode === 'history' ? 1 : 1.2,
         opacity: 0.9,
         fillColor,
-        fillOpacity: hasPattern ? (mode === 'history' ? 0.5 : 0.65) : (mode === 'history' ? 0.18 : 0.28),
+        fillOpacity: mode === 'history' ? 0.2 : 0.32,
       })
         // Right-click → open in Google Maps (useful on desktop)
         .on('contextmenu', () => {
           window.open(gmaps, '_blank', 'noopener,noreferrer');
         })
         .bindPopup(popupHtml);
-      
-      if (hasPattern) {
-        marker.on('add', ensureMarkerPatterns);
-      }
       return marker;
     }
 
@@ -1604,6 +1547,12 @@
     function renderIncidentList(incidents) {
       const listEl = document.getElementById('incident-list');
       const sorted = sortIncidents(incidents);
+      const signature = buildIncidentListSignature(
+        sorted,
+        `live:${currentSource}:${currentSort}:${currentFilter}:${currentLafayetteUnit}:${currentUrgencyFilter}`
+      );
+      if (signature === lastLiveListSignature) return;
+      lastLiveListSignature = signature;
       if (sorted.length === 0) {
         const hasAgencyFilter = currentUnitFilterValueForUi() !== 'all';
         const hasUrgencyFilter = currentUrgencyFilter !== 'all';
@@ -1644,7 +1593,7 @@
       currentFilter = filter;
       
       // Update Caddo unit button states.
-      document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
+      caddoFilterButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.filter === filter);
       });
 
@@ -1661,7 +1610,7 @@
       currentUrgencyFilter = urgency;
       
       // Update urgency filter button states
-      document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+      urgencyFilterButtons.forEach(btn => {
         btn.classList.toggle('active', btn.dataset.urgency === urgency);
       });
 
@@ -1907,6 +1856,12 @@
         ? new Date(`${date}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
         : 'selected date';
       const sorted = skipSort ? incidents : sortIncidents(incidents);
+      const signature = buildIncidentListSignature(
+        sorted,
+        `history:${date || 'none'}:${total}:${historyPage}:${currentSource}:${currentSort}:${currentFilter}:${currentLafayetteUnit}:${currentUrgencyFilter}`
+      );
+      if (signature === lastHistoryListSignature) return;
+      lastHistoryListSignature = signature;
 
       if (total === 0) {
         listEl.innerHTML = `
@@ -2275,21 +2230,21 @@
     });
     
     // Caddo unit filter button handlers
-    document.querySelectorAll('.filter-group[data-filter-type="agency-caddo"] .filter-btn').forEach(btn => {
+    caddoFilterButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         applyAgencyFilter(btn.dataset.filter);
       });
     });
 
     // Lafayette unit filter button handlers
-    document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn').forEach(btn => {
+    lafayetteFilterButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         applyLafayetteUnitFilter(btn.dataset.lafUnit);
       });
     });
 
     // Urgency filter button handlers
-    document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn').forEach(btn => {
+    urgencyFilterButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         applyUrgencyFilter(btn.dataset.urgency);
       });

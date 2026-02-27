@@ -52,7 +52,7 @@
       right: 0;
       height: 1px;
       background: linear-gradient(90deg, transparent, var(--red), transparent);
-      animation: pulse-line 1.4s ease-in-out infinite;
+      animation: none;
     }
     
     @keyframes pulse-line {
@@ -74,7 +74,7 @@
       background: rgba(0,0,0,0.25);
       border: 1px solid rgba(255, 255, 255, 0.10);
       box-shadow: 0 0 30px rgba(255, 59, 59, 0.12);
-      animation: logo-pulse 1.4s ease-in-out infinite;
+      animation: none;
       display: block;
     }
     
@@ -282,7 +282,6 @@
       padding: 15px 20px;
       border-radius: 10px;
       border: 1px solid var(--border);
-      backdrop-filter: blur(10px);
       box-shadow: 0 12px 40px rgba(0,0,0,0.4);
       width: 240px;
       transition: width 0.22s ease, padding 0.22s ease;
@@ -575,7 +574,7 @@
     }
     
     .incident-card.new {
-      animation: new-incident 0.35s ease-out;
+      animation: none;
     }
     
     @keyframes new-incident {
@@ -1783,7 +1782,7 @@
     .incident-card.highlighted {
       border-color: rgba(59, 139, 255, 1) !important;
       box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.7), 0 0 25px rgba(59, 139, 255, 0.5), inset 0 0 20px rgba(59, 139, 255, 0.1) !important;
-      animation: card-highlight-pulse 1s ease-in-out 3;
+      animation: none;
       background: linear-gradient(135deg, rgba(59, 139, 255, 0.15), rgba(59, 139, 255, 0.05)) !important;
     }
     
@@ -1796,17 +1795,14 @@
       }
     }
 
-    /* Improve street-name readability WITHOUT switching to a light basemap:
-       we render labels as a separate tile layer and boost only that layer. */
+    /* Keep map tile rendering lightweight for smooth pan/zoom. */
     .leaflet-labels-pane .leaflet-tile {
-      filter: contrast(1.35) brightness(1.35) saturate(1.05);
-      opacity: 0.95;
+      filter: none;
+      opacity: 1;
     }
 
-    /* Optional: nudge the dark basemap colors so water reads more "blue" while staying dark.
-       This applies ONLY to the base layer (labels are a separate overlay). */
     .leaflet-base-pane .leaflet-tile {
-      filter: hue-rotate(18deg) saturate(1.35) brightness(1.02);
+      filter: none;
     }
     
     /* Light-map overrides */

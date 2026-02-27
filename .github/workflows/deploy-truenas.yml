@@ -23,9 +23,65 @@ jobs:
           username: root
           key: ${{ secrets.SSH_KEY }}
           script: |
-            set -e
-            cd /mnt/Pool3x2/web/Caddo911/repo
-            git pull
-            cd ..
+            set -euo pipefail
+
+            APP_ROOT="/mnt/Pool3x2/web/Caddo911"
+            LIVE_REPO_DIR="${APP_ROOT}/repo"
+            SRC_REPO_DIR="${APP_ROOT}/.deploy_src_repo"
+            TMP_BASE="${APP_ROOT}/.deploy_tmp"
+            TS="$(date +%Y%m%d_%H%M%S)"
+            NEW_DIR="${TMP_BASE}/repo_live_${TS}"
+            OLD_DIR="${TMP_BASE}/repo_old_${TS}"
+            REPO_URL="${{ github.server_url }}/${{ github.repository }}.git"
+            REF="main"
+
+            echo "Starting atomic deploy at $(date -Is)"
+            mkdir -p "$TMP_BASE"
+
+            # Keep a separate git checkout with metadata so live repo can stay clean (no .git).
+            if [ -d "$SRC_REPO_DIR/.git" ]; then
+              echo "Updating source checkout in $SRC_REPO_DIR"
+              git -C "$SRC_REPO_DIR" fetch --prune origin "$REF"
+              git -C "$SRC_REPO_DIR" reset --hard "origin/$REF"
+              git -C "$SRC_REPO_DIR" clean -fdx
+            elif [ -d "$LIVE_REPO_DIR/.git" ]; then
+              echo "Bootstrapping source checkout from existing live repo"
+              rm -rf "$SRC_REPO_DIR"
+              git clone --depth 1 "$LIVE_REPO_DIR" "$SRC_REPO_DIR"
+            else
+              echo "Bootstrapping source checkout from remote $REPO_URL"
+              rm -rf "$SRC_REPO_DIR"
+              git clone --depth 1 --branch "$REF" "$REPO_URL" "$SRC_REPO_DIR"
+            fi
+
+            echo "Preparing clean release directory (excluding .git/.github)"
+            rm -rf "$NEW_DIR" "$OLD_DIR"
+            mkdir -p "$NEW_DIR"
+            rsync -a --delete \
+              --exclude '.git' \
+              --exclude '.github' \
+              "$SRC_REPO_DIR"/ "$NEW_DIR"/
+
+            if [ -d "$NEW_DIR/.git" ]; then
+              echo "Safety check failed: .git exists in new deploy dir"
+              exit 1
+            fi
+
+            if [ -d "$LIVE_REPO_DIR" ]; then
+              mv "$LIVE_REPO_DIR" "$OLD_DIR"
+            fi
+            mv "$NEW_DIR" "$LIVE_REPO_DIR"
+
+            echo "Rebuilding and recreating containers"
+            cd "$APP_ROOT"
             docker compose build --no-cache web collector
             docker compose up -d --force-recreate
+
+            rm -rf "$OLD_DIR"
+            test ! -d "$LIVE_REPO_DIR/.git" && echo "Verified: no .git in live repo"
+            echo "Deploy complete at $(date -Is)"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Deployment failed! Check workflow logs for details."

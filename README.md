@@ -83,14 +83,26 @@ python app.py --regeocode
 
 # archive old incidents to monthly DBs
 python app.py --archive
+
+# create a one-time DB backup snapshot (main + archive DBs)
+python app.py --backup
+
+# backup only the main DB
+python app.py --backup --backup-main-only
 ```
 
 ### Environment (optional)
 
 - `CADDO911_DB_PATH` (default: `caddo911.db`)
 - `CADDO911_ARCHIVE_DAYS` (default: `30`)
+- `CADDO911_BACKUP_DIR` (default: `<db dir>/backups`)
+- `CADDO911_BACKUP_RETENTION_WEEKS` (default: `5`, keep the most recent 5 weekly snapshots per DB)
 - `CADDO911_AUTH_TOKEN` or `CADDO911_AUTH_USER` + `CADDO911_AUTH_PASS`
 - `CADDO911_ENABLE_REFRESH_ENDPOINT` (set to `1` to enable `/api/refresh`)
+
+Automatic schedules:
+- Daily archive: `3:00 AM` Central (`--no-auto-archive` to disable)
+- Weekly backup snapshot: `Sunday 11:30 PM` Central (`--no-auto-backup` to disable)
 
 ### Self-hosting (NAS / Docker)
 
@@ -111,7 +123,8 @@ This repo also includes wiki pages in `wiki/`:
 3. **Geocoding**: Cross streets are prioritized over street names for more accurate intersection placement. Uses ArcGIS first and falls back to OpenStreetMap's Nominatim.
 4. **Storage**: Incidents stored in `caddo911.db` (SQLite) with source, timestamps, and active/inactive status.
 5. **Archiving**: Inactive incidents older than `CADDO911_ARCHIVE_DAYS` move to `caddo911_archive_YYYY_MM.db`.
-6. **Frontend**: Single-page app with Leaflet.js map, source tabs, and shared filters for Live + History views.
+6. **Backup snapshots**: Weekly SQLite-consistent snapshots are written to `backups/` (configurable).
+7. **Frontend**: Single-page app with Leaflet.js map, source tabs, and shared filters for Live + History views.
 
 ## Agency Labels
 
@@ -146,6 +159,7 @@ This app currently ingests from:
 | `public/images/` | Logos and agency icons |
 | `caddo911.db` | SQLite database (auto-created) |
 | `caddo911_archive_YYYY_MM.db` | Monthly archive databases (auto-created) |
+| `backups/*.db` | Weekly backup snapshots (auto-created) |
 | `requirements.txt` | Python dependencies |
 
 ## Tips
