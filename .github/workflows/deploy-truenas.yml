@@ -41,13 +41,15 @@ jobs:
             # Keep a separate git checkout with metadata so live repo can stay clean (no .git).
             if [ -d "$SRC_REPO_DIR/.git" ]; then
               echo "Updating source checkout in $SRC_REPO_DIR"
+              # Older deploys may have origin pointed at local LIVE_REPO_DIR.
+              if git -C "$SRC_REPO_DIR" remote get-url origin >/dev/null 2>&1; then
+                git -C "$SRC_REPO_DIR" remote set-url origin "$REPO_URL"
+              else
+                git -C "$SRC_REPO_DIR" remote add origin "$REPO_URL"
+              fi
               git -C "$SRC_REPO_DIR" fetch --prune origin "$REF"
               git -C "$SRC_REPO_DIR" reset --hard "origin/$REF"
               git -C "$SRC_REPO_DIR" clean -fdx
-            elif [ -d "$LIVE_REPO_DIR/.git" ]; then
-              echo "Bootstrapping source checkout from existing live repo"
-              rm -rf "$SRC_REPO_DIR"
-              git clone --depth 1 "$LIVE_REPO_DIR" "$SRC_REPO_DIR"
             else
               echo "Bootstrapping source checkout from remote $REPO_URL"
               rm -rf "$SRC_REPO_DIR"
