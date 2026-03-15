@@ -34,6 +34,19 @@ jobs:
             OLD_DIR="${TMP_BASE}/repo_old_${TS}"
             REPO_URL="${{ github.server_url }}/${{ github.repository }}.git"
             REF="main"
+            SWAPPED=0
+
+            rollback_on_error() {
+              status="$1"
+              if [ "${SWAPPED}" = "1" ] && [ -d "$OLD_DIR" ]; then
+                echo "Deploy failed after swap; restoring previous repo"
+                rm -rf "$LIVE_REPO_DIR"
+                mv "$OLD_DIR" "$LIVE_REPO_DIR"
+              fi
+              exit "$status"
+            }
+
+            trap 'rollback_on_error $?' ERR
 
             echo "Starting atomic deploy at $(date -Is)"
             mkdir -p "$TMP_BASE"
@@ -68,11 +81,16 @@ jobs:
               echo "Safety check failed: .git exists in new deploy dir"
               exit 1
             fi
+            if [ ! -f "$NEW_DIR/Dockerfile" ]; then
+              echo "Safety check failed: Dockerfile missing in new deploy dir"
+              exit 1
+            fi
 
             if [ -d "$LIVE_REPO_DIR" ]; then
               mv "$LIVE_REPO_DIR" "$OLD_DIR"
             fi
             mv "$NEW_DIR" "$LIVE_REPO_DIR"
+            SWAPPED=1
 
             echo "Rebuilding and recreating containers"
             cd "$APP_ROOT"
@@ -80,6 +98,7 @@ jobs:
             docker compose up -d --force-recreate
 
             rm -rf "$OLD_DIR"
+            trap - ERR
             test ! -d "$LIVE_REPO_DIR/.git" && echo "Verified: no .git in live repo"
             echo "Deploy complete at $(date -Is)"
 
