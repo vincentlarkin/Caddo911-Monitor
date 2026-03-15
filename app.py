@@ -578,8 +578,105 @@ geolocator_arcgis = ArcGIS(timeout=5)
 geolocator_osm = Nominatim(user_agent=SCRAPER_USER_AGENT, timeout=5)
 geocode_cache = {}
 
+# 2020 Census parish outline for Caddo. Using the real shape keeps west Bossier
+# hits from slipping through the old coarse longitude cutoff.
+CADDO_PARISH_RING_LON_LAT = [
+    (-94.043147, 32.693030),
+    (-94.043147, 32.693031),
+    (-94.042947, 32.767991),
+    (-94.043027, 32.776863),
+    (-94.042938, 32.780558),
+    (-94.042829, 32.785277),
+    (-94.042747, 32.786973),
+    (-94.043026, 32.797476),
+    (-94.042785, 32.871486),
+    (-94.043025, 32.880446),
+    (-94.042886, 32.880965),
+    (-94.042886, 32.881089),
+    (-94.042859, 32.892771),
+    (-94.042885, 32.898911),
+    (-94.043092, 32.910021),
+    (-94.043067, 32.937903),
+    (-94.043088, 32.955592),
+    (-94.042964, 33.019219),
+    (-94.041444, 33.019188),
+    (-94.035839, 33.019145),
+    (-94.027983, 33.019139),
+    (-94.024475, 33.019207),
+    (-93.814553, 33.019372),
+    (-93.842597, 32.946764),
+    (-93.785181, 32.857353),
+    (-93.824253, 32.792451),
+    (-93.783233, 32.784360),
+    (-93.819169, 32.736002),
+    (-93.782111, 32.712212),
+    (-93.739474, 32.590773),
+    (-93.767444, 32.538401),
+    (-93.699506, 32.497480),
+    (-93.661396, 32.427624),
+    (-93.685569, 32.395498),
+    (-93.659041, 32.406058),
+    (-93.471249, 32.237186),
+    (-93.614690, 32.237526),
+    (-93.666472, 32.317444),
+    (-93.791282, 32.340224),
+    (-93.951085, 32.195545),
+    (-94.042621, 32.196005),
+    (-94.042662, 32.218146),
+    (-94.042732, 32.269620),
+    (-94.042733, 32.269696),
+    (-94.042739, 32.363559),
+    (-94.042763, 32.373332),
+    (-94.042901, 32.392283),
+    (-94.042923, 32.399918),
+    (-94.042899, 32.400659),
+    (-94.042986, 32.435507),
+    (-94.042908, 32.439891),
+    (-94.042903, 32.470386),
+    (-94.042875, 32.471348),
+    (-94.042902, 32.472906),
+    (-94.042995, 32.478004),
+    (-94.042955, 32.480261),
+    (-94.043072, 32.484300),
+    (-94.043089, 32.486561),
+    (-94.042911, 32.492852),
+    (-94.042885, 32.505145),
+    (-94.043081, 32.513613),
+    (-94.043142, 32.559502),
+    (-94.043083, 32.564261),
+    (-94.042919, 32.610142),
+    (-94.042929, 32.618260),
+    (-94.042926, 32.622015),
+    (-94.042824, 32.640305),
+    (-94.042780, 32.643466),
+    (-94.042913, 32.655127),
+    (-94.043147, 32.693030),
+]
+
+GENERIC_CROSS_TOKENS = {
+    "DEAD END",
+    "DEADEND",
+    "EXIT",
+    "EXIT INTERCHANGE ROADWAYS",
+    "INTERCHANGE ROADWAYS",
+    "UNKNOWN",
+    "UNKNOWN NAME",
+}
+
+SOURCE_MUNICIPALITY_ALIASES = {
+    "caddo": {
+        "BLN": "Blanchard",
+        "CADD": "",
+        "GIL": "Gilliam",
+        "GWD": "Greenwood",
+        "HOS": "Hosston",
+        "MPT": "Mooringsport",
+        "SHV": "Shreveport",
+        "VIV": "Vivian",
+    },
+}
+
 # Source geocode profiles (bounds + fallback center).
-# Caddo bounds intentionally exclude most of Bossier.
 SOURCE_GEO_PROFILES = {
     "caddo": {
         "lat_min": 32.10,
@@ -589,6 +686,8 @@ SOURCE_GEO_PROFILES = {
         "center_lat": 32.5252,
         "center_lon": -93.7502,
         "default_city": "Shreveport",
+        "county": "Caddo Parish",
+        "polygon": CADDO_PARISH_RING_LON_LAT,
     },
     "lafayette": {
         "lat_min": 29.70,
@@ -598,6 +697,7 @@ SOURCE_GEO_PROFILES = {
         "center_lat": 30.2241,
         "center_lon": -92.0198,
         "default_city": "Lafayette",
+        "county": "Lafayette Parish",
     },
     "batonrouge": {
         "lat_min": 30.20,
@@ -607,6 +707,7 @@ SOURCE_GEO_PROFILES = {
         "center_lat": 30.4515,
         "center_lon": -91.1871,
         "default_city": "Baton Rouge",
+        "county": "East Baton Rouge Parish",
     },
 }
 
@@ -620,12 +721,36 @@ def _source_geo_profile(source: str | None) -> dict:
     return SOURCE_GEO_PROFILES[_normalize_source_name(source)]
 
 
+def _point_in_ring(lon: float, lat: float, ring: list[tuple[float, float]]) -> bool:
+    inside = False
+    count = len(ring)
+    if count < 3:
+        return False
+
+    for idx in range(count):
+        x1, y1 = ring[idx]
+        x2, y2 = ring[(idx + 1) % count]
+        crosses_lat = (y1 > lat) != (y2 > lat)
+        if not crosses_lat:
+            continue
+        x_at_lat = (x2 - x1) * (lat - y1) / ((y2 - y1) or 1e-12) + x1
+        if lon < x_at_lat:
+            inside = not inside
+    return inside
+
+
 def _is_in_source_bounds(lat: float, lon: float, source: str | None) -> bool:
     profile = _source_geo_profile(source)
-    return (
+    if not (
         profile["lat_min"] < lat < profile["lat_max"]
         and profile["lon_min"] < lon < profile["lon_max"]
-    )
+    ):
+        return False
+
+    polygon = profile.get("polygon")
+    if polygon:
+        return _point_in_ring(lon, lat, polygon)
+    return True
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
@@ -645,6 +770,12 @@ def _clean_ws(s: str) -> str:
 
 def _normalize_location_token(value: str | None) -> str:
     return _clean_ws(value or "").lower()
+
+
+def _is_generic_cross_token(value: str | None) -> bool:
+    token = re.sub(r"[^A-Z0-9]+", " ", _clean_ws(value or "").upper()).strip()
+    return token in GENERIC_CROSS_TOKENS
+
 
 def _is_unknown_location(street: str | None, cross_streets: str | None) -> bool:
     street_norm = _normalize_location_token(street)
@@ -673,8 +804,7 @@ def _split_cross_tokens(text: str | None) -> list[str]:
         p = _clean_ws(p)
         if not p:
             continue
-        up = p.upper()
-        if "DEAD END" in up or up in ("DEADEND",):
+        if _is_generic_cross_token(p):
             continue
         out.append(p)
     return _dedupe_keep_order(out)
@@ -708,6 +838,54 @@ def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
 
+
+def _normalize_geocode_municipality(municipality: str | None, source: str | None) -> str:
+    source_name = _normalize_source_name(source)
+    city = _clean_ws(municipality or "")
+    if not city:
+        return ""
+
+    aliases = SOURCE_MUNICIPALITY_ALIASES.get(source_name, {})
+    mapped = aliases.get(city.upper())
+    if mapped is not None:
+        return mapped
+
+    if re.fullmatch(r"[A-Z .'-]+", city) and len(city) > 4:
+        return city.title()
+    return city
+
+
+def _locality_variants_for_geocoder(municipality: str | None, source: str | None) -> list[tuple[str, ...]]:
+    profile = _source_geo_profile(source)
+    city = _normalize_geocode_municipality(municipality, source)
+    county = _clean_ws(profile.get("county") or "")
+    state = "LA"
+    fallback_city = _clean_ws(profile.get("default_city") or "")
+
+    variants: list[tuple[str, ...]] = []
+
+    def add_variant(*parts: str) -> None:
+        cleaned = tuple(part for part in (_clean_ws(p) for p in parts) if part)
+        if cleaned and cleaned not in variants:
+            variants.append(cleaned)
+
+    if city and county:
+        add_variant(city, county, state)
+    if city:
+        add_variant(city, state)
+    elif county:
+        add_variant(county, state)
+
+    if fallback_city and fallback_city != city:
+        if county:
+            add_variant(fallback_city, county, state)
+        add_variant(fallback_city, state)
+
+    if not variants:
+        add_variant(fallback_city, state)
+
+    return variants
+
 def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
     """
     Convert address to lat/lng coordinates.
@@ -729,35 +907,48 @@ def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
             'query': None,
         }
     
-    city = _clean_ws(municipality or "") or geo_profile['default_city']
-    state = 'LA'
+    locality_variants = _locality_variants_for_geocoder(municipality, source_name)
+    cache_locality = locality_variants[0][0] if locality_variants else geo_profile['default_city']
 
     street_clean, crosses = _extract_street_and_crosses(street, cross_streets)
     cross1 = crosses[0] if len(crosses) > 0 else None
     cross2 = crosses[1] if len(crosses) > 1 else None
 
     # Cache key
-    cache_key = f"{source_name}|{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{city}"
+    cache_key = f"{source_name}|{street_clean or ''}|{cross1 or ''}|{cross2 or ''}|{cache_locality}"
     if cache_key in geocode_cache:
         return geocode_cache[cache_key]
 
     # Build queries in priority order - best first
     queries: list[tuple[str, str]] = []
-    
+    seen_queries: set[str] = set()
+
+    def add_query(location_part: str | None, quality: str) -> None:
+        location_part = _clean_ws(location_part or "")
+        if not location_part:
+            return
+        for locality_parts in locality_variants:
+            query = ", ".join((location_part, *locality_parts))
+            query_key = query.lower()
+            if query_key in seen_queries:
+                continue
+            seen_queries.add(query_key)
+            queries.append((query, quality))
+
     # Best: intersection of two cross streets
     if cross1 and cross2:
-        queries.append((f"{cross1} & {cross2}, {city}, {state}", "intersection-2"))
-    # Good: street + cross street  
+        add_query(f"{cross1} & {cross2}", "intersection-2")
+    # Good: street + cross street
     if street_clean and cross1:
-        queries.append((f"{street_clean} & {cross1}, {city}, {state}", "street+cross"))
+        add_query(f"{street_clean} & {cross1}", "street+cross")
     if street_clean and cross2:
-        queries.append((f"{street_clean} & {cross2}, {city}, {state}", "street+cross"))
+        add_query(f"{street_clean} & {cross2}", "street+cross")
     # OK: just the street
     if street_clean:
-        queries.append((f"{street_clean}, {city}, {state}", "street-only"))
+        add_query(street_clean, "street-only")
     # Fallback: just a cross street
     if cross1:
-        queries.append((f"{cross1}, {city}, {state}", "cross-only"))
+        add_query(cross1, "cross-only")
     
     # Quality levels - only return early on GOOD matches
     good_qualities = {'intersection-2', 'street+cross'}
@@ -788,7 +979,7 @@ def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
             pass
     
     # Try OSM if we don't have a good result yet
-    for query, quality in queries[:3]:
+    for query, quality in queries[:8]:
         try:
             location = geolocator_osm.geocode(query, country_codes='us', exactly_one=True, timeout=3)
             if location and _is_in_source_bounds(location.latitude, location.longitude, source_name):
@@ -811,7 +1002,20 @@ def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
     if valid_results:
         # Sort by quality: intersection-2 > street+cross > street-only > cross-only
         quality_rank = {'intersection-2': 4, 'street+cross': 3, 'street-only': 2, 'cross-only': 1}
-        valid_results.sort(key=lambda r: quality_rank.get(r['quality'], 0), reverse=True)
+        county = (geo_profile.get("county") or "").lower()
+        valid_results.sort(
+            key=lambda r: (
+                quality_rank.get(r['quality'], 0),
+                1 if county and county in (r.get('query') or '').lower() else 0,
+                -_haversine_m(
+                    float(r['lat']),
+                    float(r['lng']),
+                    float(geo_profile['center_lat']),
+                    float(geo_profile['center_lon']),
+                ),
+            ),
+            reverse=True,
+        )
         result = valid_results[0]
         geocode_cache[cache_key] = result
         log(f"  [{result['source'].upper()[:3]}] {result['quality']} | {result['query']} -> ({result['lat']:.5f}, {result['lng']:.5f})")
