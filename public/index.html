@@ -1397,10 +1397,10 @@
       let popupHtml = `
         <div class="popup-content">
           <div class="popup-title">${escapeHtml(incident.description || 'Incident')}</div>
-          <div class="popup-detail">Location: ${escapeHtml(locationStr)}</div>
-          <div class="popup-detail">Time: ${escapeHtml(formatTime(incident.time))}</div>
-          <div class="popup-detail">Agency: ${escapeHtml(agencyDisplay)} &bull; ${escapeHtml(units)} unit(s)</div>
-          <div class="popup-detail">Severity: ${escapeHtml(sev.toUpperCase())}</div>
+          <div class="popup-detail">📍 ${escapeHtml(locationStr)}</div>
+          <div class="popup-detail">🕐 ${escapeHtml(formatTime(incident.time))}</div>
+          <div class="popup-detail">🚨 ${escapeHtml(agencyDisplay)} &bull; ${escapeHtml(units)} unit(s)</div>
+          <div class="popup-detail">⚠️ Severity: ${escapeHtml(sev.toUpperCase())}</div>
           <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
       `;
 
@@ -1620,23 +1620,23 @@
       incidentModalBody.innerHTML = `
         <div class="incident-modal-severity sev-${sev}">${escapeHtml(sev.toUpperCase())}</div>
         <div class="incident-modal-detail">
-          <span class="incident-modal-label">Location</span>
+          <span class="incident-modal-label">📍 Location</span>
           <span class="incident-modal-value">${escapeHtml(locationStr)}</span>
         </div>
         <div class="incident-modal-detail">
-          <span class="incident-modal-label">Time</span>
+          <span class="incident-modal-label">🕐 Time</span>
           <span class="incident-modal-value">${escapeHtml(formatTime(incident?.time))}</span>
         </div>
         <div class="incident-modal-detail">
-          <span class="incident-modal-label">Agency</span>
+          <span class="incident-modal-label">🚨 Agency</span>
           <span class="incident-modal-value">${escapeHtml(agencyDisplay)}</span>
         </div>
         <div class="incident-modal-detail">
-          <span class="incident-modal-label">Units</span>
+          <span class="incident-modal-label">🚓 Units</span>
           <span class="incident-modal-value">${escapeHtml(units)}</span>
         </div>
         <div class="incident-modal-detail">
-          <span class="incident-modal-label">Area</span>
+          <span class="incident-modal-label">📌 Area</span>
           <span class="incident-modal-value">${escapeHtml(municipality)}</span>
         </div>
       `;
