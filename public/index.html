@@ -7,7 +7,7 @@
   <link rel="icon" href="images/caddo911logo.png" type="image/png">
   <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
   <link rel="apple-touch-icon" href="images/caddo911logo.png">
-  <link rel="manifest" href="manifest.webmanifest?v=3.2.91LAbeta">
+  <link rel="manifest" href="manifest.webmanifest?v=3.2.92LAbeta">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.2.91LAbeta" />
+  <link rel="stylesheet" href="styles.css?v=3.2.92LAbeta" />
 </head>
 <body>
   <header class="header">
@@ -138,7 +138,23 @@
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v3.2.91LAbeta</p>
+        <p class="info-version">v3.2.92LAbeta</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="incident-modal" id="incident-modal" aria-hidden="true">
+    <div class="modal-backdrop" role="presentation"></div>
+    <div class="modal-dialog incident-dialog" role="dialog" aria-modal="true" aria-labelledby="incident-modal-title">
+      <div class="incident-modal-copy">
+        <p class="incident-modal-kicker">Incident details</p>
+        <h3 id="incident-modal-title">Incident</h3>
+        <div class="incident-modal-body" id="incident-modal-body"></div>
+      </div>
+      <div class="incident-modal-actions">
+        <a class="incident-modal-btn secondary" id="incident-modal-maps" href="#" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+        <button class="incident-modal-btn secondary hidden" id="incident-modal-list-btn" type="button">Go to incident in list</button>
+        <button class="incident-modal-btn primary" id="incident-modal-dismiss" type="button">Dismiss</button>
       </div>
     </div>
   </div>
@@ -1358,41 +1374,53 @@
       return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
     }
 
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function incidentLocationText(incident) {
+      return [incident?.street, incident?.cross_streets].filter(Boolean).join(' @ ') || 'Unknown';
+    }
+
+    function buildIncidentPopupHtml(incident, { mode = 'live' } = {}) {
+      const sev = getSeverity(incident);
+      const agencyDisplay = formatAgencyDisplay(incident);
+      const locationStr = incidentLocationText(incident);
+      const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
+      const units = Number.isFinite(Number(incident?.units)) ? Number(incident.units) : String(incident?.units ?? '--');
+
+      let popupHtml = `
+        <div class="popup-content">
+          <div class="popup-title">${escapeHtml(incident.description || 'Incident')}</div>
+          <div class="popup-detail">Location: ${escapeHtml(locationStr)}</div>
+          <div class="popup-detail">Time: ${escapeHtml(formatTime(incident.time))}</div>
+          <div class="popup-detail">Agency: ${escapeHtml(agencyDisplay)} &bull; ${escapeHtml(units)} unit(s)</div>
+          <div class="popup-detail">Severity: ${escapeHtml(sev.toUpperCase())}</div>
+          <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
+      `;
+
+      if (mode === 'history' && showAllHistoryOnMap) {
+        popupHtml += `<button class="popup-goto-btn" onclick="navigateToIncidentPage(${incident.id})">Go to incident in list</button>`;
+      }
+
+      popupHtml += `</div>`;
+      return popupHtml;
+    }
+
     // Create custom marker (triangle area instead of pinpoint dot)
     function createMarker(incident, { mode = 'live' } = {}) {
       const sev = getSeverity(incident);
       const color = getSeverityColor(sev);
       const fillColor = getMarkerFill(sev);
-      const agencyDisplay = formatAgencyDisplay(incident);
-      
-      const locationParts = [];
-      if (incident.street) locationParts.push(incident.street);
-      if (incident.cross_streets) locationParts.push(incident.cross_streets);
-      const locationStr = locationParts.join(' @ ') || 'Unknown';
 
       const seed = _incidentSeed(incident);
       const sizeMeters = _geocodeTriangleSizeMeters(incident, mode);
       const points = _triangleLatLngs(incident.latitude, incident.longitude, sizeMeters, seed);
-      const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
-      
-      // Build popup content - add "Go to page" link for history mode when showing all incidents
-      let popupHtml = `
-        <div class="popup-content">
-          <div class="popup-title">${incident.description}</div>
-          <div class="popup-detail">📍 ${locationStr}</div>
-          <div class="popup-detail">🕐 ${formatTime(incident.time)}</div>
-          <div class="popup-detail">🚨 ${agencyDisplay} • ${incident.units} unit(s)</div>
-          <div class="popup-detail">⚠️ Severity: ${sev.toUpperCase()}</div>
-          <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
-      `;
-      
-      // Add "Go to incident" button for history mode with show all enabled
-      if (mode === 'history' && showAllHistoryOnMap) {
-        popupHtml += `<button class="popup-goto-btn" onclick="navigateToIncidentPage(${incident.id})">Go to incident in list</button>`;
-      }
-      
-      popupHtml += `</div>`;
-      
       const marker = L.polygon(points, {
         renderer: markerRenderer,
         color,
@@ -1403,9 +1431,22 @@
       })
         // Right-click → open in Google Maps (useful on desktop)
         .on('contextmenu', () => {
-          window.open(gmaps, '_blank', 'noopener,noreferrer');
+          const activeIncident = marker.incidentData || incident;
+          window.open(googleMapsUrl(activeIncident.latitude, activeIncident.longitude), '_blank', 'noopener,noreferrer');
         })
-        .bindPopup(popupHtml);
+        .on('click', () => {
+          const activeIncident = marker.incidentData || incident;
+          const activeMode = marker.incidentMode || mode;
+          if (shouldUseMobileIncidentDialog()) {
+            map.closePopup();
+            openIncidentDialog(activeIncident, { mode: activeMode });
+            return;
+          }
+          toggleIncidentDialog(false);
+          marker.bindPopup(buildIncidentPopupHtml(activeIncident, { mode: activeMode })).openPopup();
+        });
+      marker.incidentData = incident;
+      marker.incidentMode = mode;
       return marker;
     }
 
@@ -1453,7 +1494,11 @@
           markers.set(incident.id, marker);
         } else {
           const marker = markers.get(incident.id);
-          if (marker && !map.hasLayer(marker)) marker.addTo(map);
+          if (marker) {
+            marker.incidentData = incident;
+            marker.incidentMode = mode;
+            if (!map.hasLayer(marker)) marker.addTo(map);
+          }
         }
       });
 
@@ -1512,6 +1557,7 @@
       const agencyDisplay = formatAgencyDisplay(incident);
       const hasLocation = hasValidLocation(incident);
       const clickAttr = hasLocation ? ` onclick="focusIncident(${incident.latitude}, ${incident.longitude})"` : '';
+      const locationText = incidentLocationText(incident);
       
       return `
         <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}" 
@@ -1521,7 +1567,7 @@
             <span class="incident-time">${formatTime(incident.time)}</span>
           </div>
           <div class="incident-location">
-            📍 ${[incident.street, incident.cross_streets].filter(Boolean).join(' @ ') || 'Unknown'}
+            📍 ${locationText}
           </div>
           <div class="incident-meta">
             <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${agencyDisplay}</span>
@@ -1543,6 +1589,73 @@
     const settingsModal = document.getElementById('settings-modal');
     const settingsClose = document.getElementById('settings-close');
     const showAllHistoryToggle = document.getElementById('setting-show-all-history');
+    const incidentModal = document.getElementById('incident-modal');
+    const incidentModalTitle = document.getElementById('incident-modal-title');
+    const incidentModalBody = document.getElementById('incident-modal-body');
+    const incidentModalMaps = document.getElementById('incident-modal-maps');
+    const incidentModalListBtn = document.getElementById('incident-modal-list-btn');
+    const incidentModalDismiss = document.getElementById('incident-modal-dismiss');
+    let incidentModalTargetId = null;
+
+    function syncModalOpenState() {
+      const hasOpenModal = Boolean(
+        settingsModal?.classList.contains('open') ||
+        infoModal?.classList.contains('open') ||
+        incidentModal?.classList.contains('open')
+      );
+      document.body.classList.toggle('modal-open', hasOpenModal);
+    }
+
+    function openIncidentDialog(incident, { mode = 'live' } = {}) {
+      if (!incidentModal || !incidentModalTitle || !incidentModalBody || !incidentModalMaps) return;
+
+      const sev = getSeverity(incident);
+      const agencyDisplay = formatAgencyDisplay(incident);
+      const locationStr = incidentLocationText(incident);
+      const municipality = incident?.municipality || 'Unknown';
+      const units = Number.isFinite(Number(incident?.units)) ? `${Number(incident.units)} unit(s)` : String(incident?.units || '--');
+      const canJumpToList = mode === 'history' && showAllHistoryOnMap && Number.isFinite(Number(incident?.id));
+
+      incidentModalTitle.textContent = incident?.description || 'Incident';
+      incidentModalBody.innerHTML = `
+        <div class="incident-modal-severity sev-${sev}">${escapeHtml(sev.toUpperCase())}</div>
+        <div class="incident-modal-detail">
+          <span class="incident-modal-label">Location</span>
+          <span class="incident-modal-value">${escapeHtml(locationStr)}</span>
+        </div>
+        <div class="incident-modal-detail">
+          <span class="incident-modal-label">Time</span>
+          <span class="incident-modal-value">${escapeHtml(formatTime(incident?.time))}</span>
+        </div>
+        <div class="incident-modal-detail">
+          <span class="incident-modal-label">Agency</span>
+          <span class="incident-modal-value">${escapeHtml(agencyDisplay)}</span>
+        </div>
+        <div class="incident-modal-detail">
+          <span class="incident-modal-label">Units</span>
+          <span class="incident-modal-value">${escapeHtml(units)}</span>
+        </div>
+        <div class="incident-modal-detail">
+          <span class="incident-modal-label">Area</span>
+          <span class="incident-modal-value">${escapeHtml(municipality)}</span>
+        </div>
+      `;
+      incidentModalMaps.href = googleMapsUrl(incident.latitude, incident.longitude);
+      incidentModalTargetId = canJumpToList ? Number(incident.id) : null;
+      incidentModalListBtn?.classList.toggle('hidden', !canJumpToList);
+      toggleIncidentDialog(true);
+    }
+
+    window.toggleIncidentDialog = function(forceOpen) {
+      if (!incidentModal) return;
+      const next = typeof forceOpen === 'boolean' ? forceOpen : !incidentModal.classList.contains('open');
+      incidentModal.classList.toggle('open', next);
+      incidentModal.setAttribute('aria-hidden', String(!next));
+      if (!next) {
+        incidentModalTargetId = null;
+      }
+      syncModalOpenState();
+    };
     
     // Load setting from localStorage (default: true - show all incidents on map)
     let showAllHistoryOnMap = localStorage.getItem('showAllHistoryOnMap') !== 'false';
@@ -1558,7 +1671,7 @@
       const next = typeof forceOpen === 'boolean' ? forceOpen : !settingsModal.classList.contains('open');
       settingsModal.classList.toggle('open', next);
       settingsModal.setAttribute('aria-hidden', String(!next));
-      document.body.classList.toggle('modal-open', next);
+      syncModalOpenState();
     };
     
     settingsClose?.addEventListener('click', () => toggleSettingsPanel(false));
@@ -1585,14 +1698,25 @@
       const next = typeof forceOpen === 'boolean' ? forceOpen : !infoModal.classList.contains('open');
       infoModal.classList.toggle('open', next);
       infoModal.setAttribute('aria-hidden', String(!next));
-      document.body.classList.toggle('modal-open', next);
+      syncModalOpenState();
     };
     
     infoClose?.addEventListener('click', () => toggleInfoPanel(false));
     infoModal?.addEventListener('click', (e) => {
       if (e.target.classList.contains('modal-backdrop')) toggleInfoPanel(false);
     });
+    incidentModalDismiss?.addEventListener('click', () => toggleIncidentDialog(false));
+    incidentModal?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('modal-backdrop')) toggleIncidentDialog(false);
+    });
+    incidentModalListBtn?.addEventListener('click', async () => {
+      if (incidentModalTargetId == null) return;
+      const targetId = incidentModalTargetId;
+      toggleIncidentDialog(false);
+      await navigateToIncidentPage(targetId);
+    });
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && incidentModal?.classList.contains('open')) toggleIncidentDialog(false);
       if (e.key === 'Escape' && infoModal?.classList.contains('open')) toggleInfoPanel(false);
       if (e.key === 'Escape' && settingsModal?.classList.contains('open')) toggleSettingsPanel(false);
     });
@@ -2494,6 +2618,11 @@
     const sidebar = document.querySelector('.sidebar');
     const panelToggle = document.getElementById('panel-toggle');
     const mobileQuery = window.matchMedia('(max-width: 720px)');
+    const coarsePointerQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
+
+    function shouldUseMobileIncidentDialog() {
+      return mobileQuery.matches || (coarsePointerQuery.matches && window.innerWidth <= 1024);
+    }
 
     function setMobilePanelOpen(open) {
       if (!sidebar) return;
@@ -2509,6 +2638,9 @@
     function syncMobilePanel() {
       const isMobile = mobileQuery.matches;
       document.body.classList.toggle('mobile-view', isMobile);
+      if (!shouldUseMobileIncidentDialog()) {
+        toggleIncidentDialog(false);
+      }
       if (!isMobile) {
         sidebar?.classList.remove('collapsed');
         document.body.classList.remove('mobile-incidents-open');
@@ -2530,12 +2662,13 @@
     });
 
     mobileQuery.addEventListener('change', syncMobilePanel);
+    coarsePointerQuery.addEventListener('change', syncMobilePanel);
     window.addEventListener('load', syncMobilePanel);
     syncMobilePanel();
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=3.2.91LAbeta', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=3.2.92LAbeta', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);

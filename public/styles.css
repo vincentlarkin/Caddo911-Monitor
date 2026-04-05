@@ -1319,6 +1319,167 @@
       z-index: 1;
       animation: slideIn 0.12s ease-out;
     }
+
+    .incident-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 3200;
+    }
+
+    .incident-modal.open {
+      display: flex;
+    }
+
+    .incident-modal .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(4, 8, 16, 0.68);
+      backdrop-filter: blur(10px);
+    }
+
+    .incident-modal .incident-dialog {
+      position: relative;
+      width: min(420px, calc(100vw - 28px));
+      background: linear-gradient(180deg, rgba(17, 21, 31, 0.98), rgba(13, 16, 24, 0.98));
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      padding: 22px 20px 18px;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.48);
+      z-index: 1;
+      animation: slideIn 0.14s ease-out;
+      text-align: center;
+    }
+
+    .incident-modal-copy h3 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 20px;
+      line-height: 1.2;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    .incident-modal-kicker {
+      margin-bottom: 8px;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .incident-modal-body {
+      display: grid;
+      gap: 10px;
+    }
+
+    .incident-modal-severity {
+      justify-self: center;
+      min-width: 110px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+      margin-bottom: 4px;
+    }
+
+    .incident-modal-severity.sev-high {
+      background: rgba(255, 59, 59, 0.16);
+      border-color: rgba(255, 59, 59, 0.34);
+      color: var(--red);
+    }
+
+    .incident-modal-severity.sev-medium {
+      background: rgba(255, 184, 48, 0.16);
+      border-color: rgba(255, 184, 48, 0.3);
+      color: var(--amber);
+    }
+
+    .incident-modal-severity.sev-low {
+      background: rgba(59, 139, 255, 0.16);
+      border-color: rgba(59, 139, 255, 0.34);
+      color: var(--blue);
+    }
+
+    .incident-modal-severity.sev-service {
+      background: rgba(0, 255, 136, 0.14);
+      border-color: rgba(0, 255, 136, 0.28);
+      color: var(--green);
+    }
+
+    .incident-modal-severity.sev-medical,
+    .incident-modal-severity.sev-custody {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.14);
+      color: var(--text);
+    }
+
+    .incident-modal-detail {
+      display: grid;
+      gap: 4px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      text-align: left;
+    }
+
+    .incident-modal-label {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .incident-modal-value {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--text);
+      word-break: break-word;
+    }
+
+    .incident-modal-actions {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .incident-modal-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 46px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+
+    .incident-modal-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .incident-modal-btn.primary {
+      background: linear-gradient(180deg, rgba(59, 139, 255, 0.96), rgba(39, 114, 221, 0.96));
+      border-color: rgba(59, 139, 255, 0.55);
+      color: #fff;
+    }
+
+    .incident-modal-btn.secondary {
+      background: rgba(255, 255, 255, 0.045);
+      border-color: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }
     
     .modal-close {
       position: absolute;
@@ -1961,6 +2122,24 @@
     @media (max-width: 720px) {
       body {
         min-height: 100dvh;
+      }
+
+      .incident-modal {
+        padding: 14px;
+      }
+
+      .incident-modal .incident-dialog {
+        width: min(100%, 420px);
+        border-radius: 22px;
+        padding: 20px 16px 16px;
+      }
+
+      .incident-modal-copy h3 {
+        font-size: 18px;
+      }
+
+      .incident-modal-value {
+        font-size: 12px;
       }
 
       .main-container {
