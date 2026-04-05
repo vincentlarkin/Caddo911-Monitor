@@ -1387,19 +1387,29 @@
       return [incident?.street, incident?.cross_streets].filter(Boolean).join(' @ ') || 'Unknown';
     }
 
+    function formatUnitCount(units) {
+      const raw = String(units ?? '').trim();
+      if (!raw) return '--';
+
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric)) return raw;
+
+      return `${raw} ${Math.abs(numeric) === 1 ? 'unit' : 'units'}`;
+    }
+
     function buildIncidentPopupHtml(incident, { mode = 'live' } = {}) {
       const sev = getSeverity(incident);
       const agencyDisplay = formatAgencyDisplay(incident);
       const locationStr = incidentLocationText(incident);
       const gmaps = googleMapsUrl(incident.latitude, incident.longitude);
-      const units = Number.isFinite(Number(incident?.units)) ? Number(incident.units) : String(incident?.units ?? '--');
+      const unitLabel = formatUnitCount(incident?.units);
 
       let popupHtml = `
         <div class="popup-content">
           <div class="popup-title">${escapeHtml(incident.description || 'Incident')}</div>
           <div class="popup-detail">📍 ${escapeHtml(locationStr)}</div>
           <div class="popup-detail">🕐 ${escapeHtml(formatTime(incident.time))}</div>
-          <div class="popup-detail">🚨 ${escapeHtml(agencyDisplay)} &bull; ${escapeHtml(units)} unit(s)</div>
+          <div class="popup-detail">🚨 ${escapeHtml(agencyDisplay)} &bull; ${escapeHtml(unitLabel)}</div>
           <div class="popup-detail">⚠️ Severity: ${escapeHtml(sev.toUpperCase())}</div>
           <a class="popup-link" href="${gmaps}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>
       `;
@@ -1555,6 +1565,7 @@
       const sev = getSeverity(incident);
       const sevClass = getSeverityClass(sev);
       const agencyDisplay = formatAgencyDisplay(incident);
+      const unitLabel = formatUnitCount(incident?.units);
       const hasLocation = hasValidLocation(incident);
       const clickAttr = hasLocation ? ` onclick="focusIncident(${incident.latitude}, ${incident.longitude})"` : '';
       const locationText = incidentLocationText(incident);
@@ -1571,7 +1582,7 @@
           </div>
           <div class="incident-meta">
             <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${agencyDisplay}</span>
-            <span class="incident-units">${sev.toUpperCase()} • ${incident.units} unit(s) • ${incident.municipality}</span>
+            <span class="incident-units">${sev.toUpperCase()} • ${unitLabel} • ${incident.municipality}</span>
           </div>
         </div>
       `;
@@ -1613,7 +1624,7 @@
       const agencyDisplay = formatAgencyDisplay(incident);
       const locationStr = incidentLocationText(incident);
       const municipality = incident?.municipality || 'Unknown';
-      const units = Number.isFinite(Number(incident?.units)) ? `${Number(incident.units)} unit(s)` : String(incident?.units || '--');
+      const unitLabel = formatUnitCount(incident?.units);
       const canJumpToList = mode === 'history' && showAllHistoryOnMap && Number.isFinite(Number(incident?.id));
 
       incidentModalTitle.textContent = incident?.description || 'Incident';
@@ -1633,7 +1644,7 @@
         </div>
         <div class="incident-modal-detail">
           <span class="incident-modal-label">🚓 Units</span>
-          <span class="incident-modal-value">${escapeHtml(units)}</span>
+          <span class="incident-modal-value">${escapeHtml(unitLabel)}</span>
         </div>
         <div class="incident-modal-detail">
           <span class="incident-modal-label">📌 Area</span>
