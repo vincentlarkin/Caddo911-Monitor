@@ -1372,6 +1372,263 @@ def _incident_matches_source_filter(incident: dict, source_filter: str) -> bool:
     return _normalize_incident_source_for_read(incident.get('source')) == source_filter
 
 
+def _query_month_incidents_from_conn(
+    conn: sqlite3.Connection,
+    month: str,
+    source_filter: str,
+    *,
+    ensure_source_column: bool = False,
+) -> list[dict]:
+    """Read incidents for a Central month from one SQLite database."""
+    bounds = _central_month_bounds_utc(month)
+    if not bounds:
+        return []
+
+    start_utc, end_utc = bounds
+    cursor = conn.cursor()
+    has_source_column = _ensure_incidents_source_column(conn) if ensure_source_column else _incidents_table_has_source_column(cursor)
+
+    if source_filter == 'all':
+        sql = 'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC'
+        args: tuple = (start_utc, end_utc)
+    elif source_filter == 'caddo':
+        if has_source_column:
+            sql = (
+                "SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? "
+                "AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '') "
+                "ORDER BY first_seen DESC"
+            )
+            args = (start_utc, end_utc)
+        else:
+            sql = 'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC'
+            args = (start_utc, end_utc)
+    elif not has_source_column:
+        return []
+    else:
+        sql = 'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? AND source = ? ORDER BY first_seen DESC'
+        args = (start_utc, end_utc, source_filter)
+
+    try:
+        cursor.execute(sql, args)
+    except sqlite3.OperationalError:
+        if source_filter not in ('all', 'caddo'):
+            return []
+        cursor.execute(
+            'SELECT * FROM incidents WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC',
+            (start_utc, end_utc),
+        )
+
+    rows = [dict(row) for row in cursor.fetchall()]
+    for row in rows:
+        row['source'] = _normalize_incident_source_for_read(row.get('source'))
+    return rows
+
+
+def _load_month_incidents(month: str, source_filter: str) -> list[dict]:
+    """Load incidents for a month from the main DB plus the month archive DB, if present."""
+    incidents_by_hash: dict[str, dict] = {}
+
+    conn = db_connect(row_factory=True)
+    try:
+        for row in _query_month_incidents_from_conn(conn, month, source_filter, ensure_source_column=True):
+            key = str(row.get('hash') or f"main:{row.get('id')}")
+            if key not in incidents_by_hash:
+                incidents_by_hash[key] = row
+    finally:
+        conn.close()
+
+    for archive_path in _get_archive_dbs_for_month(month):
+        try:
+            archive_conn = _archive_db_connect(archive_path, row_factory=True)
+            try:
+                for row in _query_month_incidents_from_conn(archive_conn, month, source_filter):
+                    key = str(row.get('hash') or f"{archive_path}:{row.get('id')}")
+                    if key not in incidents_by_hash:
+                        incidents_by_hash[key] = row
+            finally:
+                archive_conn.close()
+        except Exception as e:
+            log(f"[ARCHIVE] Error reading {archive_path}: {e}")
+
+    return list(incidents_by_hash.values())
+
+
+def _incident_location_label(incident: dict) -> str | None:
+    street = _clean_ws(incident.get('street') or '')
+    cross = _clean_ws(incident.get('cross_streets') or '')
+    municipality = _clean_ws(incident.get('municipality') or '')
+
+    if street and cross:
+        return f"{street} @ {cross}"
+    if street:
+        return street
+    if cross:
+        return cross
+    if municipality:
+        return municipality
+    return None
+
+
+def _incident_coordinates(incident: dict) -> tuple[float, float] | None:
+    try:
+        lat = float(incident.get('latitude'))
+        lon = float(incident.get('longitude'))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(lat) or not math.isfinite(lon):
+        return None
+    return lat, lon
+
+
+def _top_counts(values: list[str], *, limit: int = 5, label_key: str = 'label') -> list[dict]:
+    counts: dict[str, int] = {}
+    for value in values:
+        clean = _clean_ws(value)
+        if not clean:
+            continue
+        counts[clean] = counts.get(clean, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return [{label_key: label, 'count': count} for label, count in ranked[:limit]]
+
+
+def _build_hotspot_summary(incidents: list[dict], radius_miles: float) -> dict | None:
+    points: list[tuple[dict, float, float]] = []
+    for incident in incidents:
+        coords = _incident_coordinates(incident)
+        if coords is None:
+            continue
+        lat, lon = coords
+        points.append((incident, lat, lon))
+
+    if not points:
+        return None
+
+    radius_m = max(float(radius_miles), 0.1) * 1609.344
+    best_cluster: list[tuple[dict, float, float, float]] = []
+    best_avg_distance: float | None = None
+
+    for anchor_incident, anchor_lat, anchor_lon in points:
+        cluster: list[tuple[dict, float, float, float]] = []
+        total_distance = 0.0
+        for incident, lat, lon in points:
+            dist_m = _haversine_m(anchor_lat, anchor_lon, lat, lon)
+            if dist_m <= radius_m:
+                cluster.append((incident, lat, lon, dist_m))
+                total_distance += dist_m
+
+        if not cluster:
+            continue
+
+        avg_distance = total_distance / len(cluster)
+        is_better = False
+        if len(cluster) > len(best_cluster):
+            is_better = True
+        elif len(cluster) == len(best_cluster):
+            if best_avg_distance is None or avg_distance < best_avg_distance:
+                is_better = True
+
+        if is_better:
+            best_cluster = cluster
+            best_avg_distance = avg_distance
+
+    if not best_cluster:
+        return None
+
+    center_lat = sum(lat for _, lat, _, _ in best_cluster) / len(best_cluster)
+    center_lon = sum(lon for _, _, lon, _ in best_cluster) / len(best_cluster)
+
+    top_municipalities = _top_counts(
+        [incident.get('municipality') or '' for incident, _, _, _ in best_cluster],
+        label_key='name',
+    )
+    top_locations = _top_counts(
+        [_incident_location_label(incident) or '' for incident, _, _, _ in best_cluster],
+    )
+
+    anchor_incident, anchor_lat, anchor_lon, _ = min(best_cluster, key=lambda item: item[3])
+
+    return {
+        'incidentCount': len(best_cluster),
+        'radiusMiles': radius_miles,
+        'center': {
+            'latitude': round(center_lat, 6),
+            'longitude': round(center_lon, 6),
+        },
+        'anchor': {
+            'latitude': round(anchor_lat, 6),
+            'longitude': round(anchor_lon, 6),
+            'label': _incident_location_label(anchor_incident),
+            'municipality': anchor_incident.get('municipality'),
+        },
+        'topMunicipalities': top_municipalities,
+        'topLocations': top_locations,
+    }
+
+
+def _build_monthly_report(month: str, source_filter: str, radius_miles: float) -> dict:
+    incidents = _load_month_incidents(month, source_filter)
+    incidents.sort(key=lambda row: row.get('first_seen') or '')
+
+    by_type: dict[str, int] = {}
+    for incident in incidents:
+        description = _clean_ws(incident.get('description') or '')
+        if not description:
+            continue
+        by_type[description] = by_type.get(description, 0) + 1
+
+    top_types = sorted(by_type.items(), key=lambda item: (-item[1], item[0]))
+    top_incident_type = None
+    hotspot = None
+
+    if top_types:
+        top_description, top_count = top_types[0]
+        top_incidents = [
+            incident for incident in incidents
+            if _clean_ws(incident.get('description') or '') == top_description
+        ]
+        hotspot = _build_hotspot_summary(top_incidents, radius_miles)
+        top_incident_type = {
+            'description': top_description,
+            'count': top_count,
+            'shareOfMonth': round(top_count / len(incidents), 4) if incidents else 0.0,
+            'geocodedCount': sum(1 for incident in top_incidents if _incident_coordinates(incident) is not None),
+            'hotspot': hotspot,
+        }
+        if hotspot:
+            top_incident_type['hotspot']['shareOfType'] = round(hotspot['incidentCount'] / top_count, 4) if top_count else 0.0
+
+    summary = None
+    if top_incident_type:
+        summary = (
+            f"{top_incident_type['description']} was the most common incident type "
+            f"with {top_incident_type['count']} incidents."
+        )
+        if hotspot:
+            anchor_label = hotspot['anchor'].get('label') or hotspot['anchor'].get('municipality') or 'the mapped area'
+            summary += (
+                f" The densest {radius_miles:g}-mile hotspot had "
+                f"{hotspot['incidentCount']} of them near {anchor_label}."
+            )
+
+    return {
+        'month': month,
+        'source': source_filter,
+        'radiusMiles': radius_miles,
+        'generatedAt': datetime.now(timezone.utc).isoformat(),
+        'totalIncidents': len(incidents),
+        'topIncidentType': top_incident_type,
+        'topTypes': [
+            {
+                'description': description,
+                'count': count,
+                'shareOfMonth': round(count / len(incidents), 4) if incidents else 0.0,
+            }
+            for description, count in top_types[:10]
+        ],
+        'summary': summary,
+    }
+
+
 # API Routes
 @app.route('/')
 def index():
@@ -1649,6 +1906,20 @@ def get_history_counts():
             log(f"[ARCHIVE] Error reading {archive_path}: {e}")
 
     return jsonify({'counts': counts})
+
+@app.route('/api/reports/monthly')
+def get_monthly_report():
+    month = (request.args.get('month') or datetime.now(CENTRAL_TZ).strftime('%Y-%m')).strip()
+    source_filter = _normalize_source_filter(request.args.get('source'))
+    radius_miles = request.args.get('radius_miles', default=5.0, type=float)
+
+    if len(month) != 7 or _central_month_bounds_utc(month) is None:
+        return jsonify({'error': 'month must be in YYYY-MM format'}), 400
+
+    if radius_miles is None or not math.isfinite(radius_miles) or radius_miles <= 0 or radius_miles > 50:
+        return jsonify({'error': 'radius_miles must be a number between 0 and 50'}), 400
+
+    return jsonify(_build_monthly_report(month, source_filter, radius_miles))
 
 @app.route('/api/stats')
 def get_stats():

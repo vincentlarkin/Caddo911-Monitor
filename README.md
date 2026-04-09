@@ -172,6 +172,34 @@ This app currently ingests from:
 - **Filter incidents**: Use filter buttons to focus on agency types and urgency/severity.
 - **Historical view**: Switch to "History" tab and select a date to browse past incidents
 
+## Monthly Reporting API
+
+The app now exposes a monthly report endpoint that summarizes:
+
+- the most common incident type for a month
+- the densest hotspot for that type within a configurable radius (default `5` miles)
+
+Example:
+
+```bash
+curl "http://localhost:3911/api/reports/monthly?month=2026-02&radius_miles=5&source=all"
+```
+
+Example with your hosted domain:
+
+```bash
+curl "https://your-domain.example/api/reports/monthly?month=2026-02&radius_miles=5&source=caddo"
+```
+
+Response highlights:
+
+- `totalIncidents`: all incidents seen in that month
+- `topIncidentType.description`: most common call/incident description
+- `topIncidentType.count`: how many times it occurred
+- `topIncidentType.hotspot.incidentCount`: how many of that type fell inside the strongest radius cluster
+- `topIncidentType.hotspot.center`: approximate center point for the hotspot
+- `topIncidentType.hotspot.topLocations`: most common nearby street/intersection labels in that hotspot
+
 ## License
 
 This project is **proprietary software** owned by Vincent Larkin.
