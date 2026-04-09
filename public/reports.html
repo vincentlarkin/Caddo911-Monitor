@@ -563,7 +563,7 @@
       <div class="hero-copy">
         <p class="eyebrow">Caddo 911 Analytics</p>
         <h1>Monthly Incident Reports</h1>
-        <p>Review the top incident type for any available month, see the strongest 5-mile hotspot, and compare the top 10 incident categories.</p>
+        <p>Review the top incident type for any available month, see the strongest 3-mile hotspot, and compare the top 10 incident categories.</p>
       </div>
       <div class="hero-actions">
         <a class="hero-link" href="/">Back to Live Map</a>
@@ -615,7 +615,7 @@
         <strong id="report-top-count">0</strong>
       </article>
       <article class="stat-card">
-        <span>5-mile hotspot</span>
+        <span>3-mile hotspot</span>
         <strong id="report-hotspot-count">0</strong>
       </article>
     </section>
@@ -636,7 +636,7 @@
       <article class="detail-card">
         <div class="detail-head">
           <h3>Hotspot</h3>
-          <span class="badge" id="report-hotspot-badge">5-mile radius</span>
+          <span class="badge" id="report-hotspot-badge">3-mile radius</span>
         </div>
         <div class="keyline">
           <strong id="report-hotspot-anchor">--</strong>
@@ -863,7 +863,7 @@
       topShareEl.textContent = formatPercent(top?.shareOfMonth);
       topTypeEl.textContent = top?.description || 'No ranked incident type';
       topMetaEl.textContent = `${formatNumber(top?.geocodedCount)} geocoded incidents`;
-      hotspotBadgeEl.textContent = `${Number(report?.radiusMiles || 5).toFixed(0)}-mile radius`;
+      hotspotBadgeEl.textContent = `${Number(report?.radiusMiles || 3).toFixed(0)}-mile radius`;
       hotspotAnchorEl.textContent = hotspot?.anchor?.label || hotspot?.anchor?.municipality || 'No hotspot available';
       hotspotSubtitleEl.textContent = hotspot
         ? `${formatNumber(hotspot.incidentCount)} incidents clustered near this area`
@@ -906,7 +906,7 @@
         const params = new URLSearchParams({
           month,
           source,
-          radius_miles: '5'
+          radius_miles: '3'
         });
         const response = await fetch(`/api/reports/monthly?${params.toString()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);

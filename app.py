@@ -31,7 +31,7 @@ DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
 # Archive settings: incidents older than this many days get moved to monthly archive DBs
 ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))
 BACKUP_RETENTION_WEEKS = int(os.environ.get('CADDO911_BACKUP_RETENTION_WEEKS', '5'))
-REPORT_CACHE_VERSION = 3
+REPORT_CACHE_VERSION = 4
 
 def _get_archive_dir() -> str:
     """Get the directory where archive DBs are stored (same dir as main DB)."""
@@ -1612,20 +1612,23 @@ def _is_past_month(month: str) -> bool:
     return month < current_month
 
 
-def _monthly_report_cache_path(month: str, source_filter: str) -> str:
+def _monthly_report_cache_path(month: str, source_filter: str, radius_miles: float) -> str:
     safe_source = re.sub(r'[^a-z0-9_-]+', '_', (source_filter or 'all').lower()).strip('_') or 'all'
-    filename = f"monthly_report_v{REPORT_CACHE_VERSION}_{safe_source}_{month}.json"
+    safe_radius = re.sub(r'[^0-9a-z_-]+', '_', f"{float(radius_miles):g}mi")
+    filename = f"monthly_report_v{REPORT_CACHE_VERSION}_{safe_source}_{month}_{safe_radius}.json"
     return os.path.join(_get_report_cache_dir(), filename)
 
 
-def _load_cached_monthly_report(month: str, source_filter: str) -> dict | None:
-    path = _monthly_report_cache_path(month, source_filter)
+def _load_cached_monthly_report(month: str, source_filter: str, radius_miles: float) -> dict | None:
+    path = _monthly_report_cache_path(month, source_filter, radius_miles)
     if not os.path.exists(path):
         return None
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             data = json.load(fh)
         if int(data.get('cacheVersion') or 0) != REPORT_CACHE_VERSION:
+            return None
+        if abs(float(data.get('radiusMiles') or 0) - float(radius_miles)) > 1e-9:
             return None
         return data
     except Exception:
@@ -1635,11 +1638,12 @@ def _load_cached_monthly_report(month: str, source_filter: str) -> dict | None:
 def _save_cached_monthly_report(report: dict) -> None:
     month = str(report.get('month') or '')
     source_filter = str(report.get('source') or 'all')
+    radius_miles = float(report.get('radiusMiles') or 0)
     if not month:
         return
     cache_dir = _get_report_cache_dir()
     os.makedirs(cache_dir, exist_ok=True)
-    path = _monthly_report_cache_path(month, source_filter)
+    path = _monthly_report_cache_path(month, source_filter, radius_miles)
     payload = dict(report)
     payload['cacheVersion'] = REPORT_CACHE_VERSION
     payload['isStatic'] = True
@@ -2092,7 +2096,7 @@ def get_history_counts():
 def get_monthly_report():
     month = (request.args.get('month') or datetime.now(CENTRAL_TZ).strftime('%Y-%m')).strip()
     source_filter = _normalize_source_filter(request.args.get('source'))
-    radius_miles = request.args.get('radius_miles', default=5.0, type=float)
+    radius_miles = request.args.get('radius_miles', default=3.0, type=float)
 
     if len(month) != 7 or _central_month_bounds_utc(month) is None:
         return jsonify({'error': 'month must be in YYYY-MM format'}), 400
@@ -2106,7 +2110,7 @@ def get_monthly_report():
         return jsonify({'error': 'no report data available for that month and source'}), 404
 
     if _is_past_month(month):
-        cached = _load_cached_monthly_report(month, source_filter)
+        cached = _load_cached_monthly_report(month, source_filter, radius_miles)
         if cached:
             return jsonify(cached)
 
