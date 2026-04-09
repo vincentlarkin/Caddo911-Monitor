@@ -1491,6 +1491,21 @@ def _top_counts(values: list[str], *, limit: int = 5, label_key: str = 'label') 
     return [{label_key: label, 'count': count} for label, count in ranked[:limit]]
 
 
+DEFAULT_MONTHLY_REPORT_EXCLUDED_TYPES = {
+    'TAKEN BY OTHER AGENCY',
+}
+
+
+def _normalize_report_excluded_descriptions(raw_values: list[str] | None = None) -> set[str]:
+    values = raw_values if raw_values is not None else list(DEFAULT_MONTHLY_REPORT_EXCLUDED_TYPES)
+    normalized: set[str] = set()
+    for value in values:
+        clean = _clean_ws(value or '')
+        if clean:
+            normalized.add(clean.upper())
+    return normalized
+
+
 def _build_hotspot_summary(incidents: list[dict], radius_miles: float) -> dict | None:
     points: list[tuple[dict, float, float]] = []
     for incident in incidents:
@@ -1565,12 +1580,28 @@ def _build_hotspot_summary(incidents: list[dict], radius_miles: float) -> dict |
     }
 
 
-def _build_monthly_report(month: str, source_filter: str, radius_miles: float) -> dict:
+def _build_monthly_report(
+    month: str,
+    source_filter: str,
+    radius_miles: float,
+    *,
+    excluded_descriptions: set[str] | None = None,
+) -> dict:
     incidents = _load_month_incidents(month, source_filter)
     incidents.sort(key=lambda row: row.get('first_seen') or '')
+    excluded = excluded_descriptions if excluded_descriptions is not None else _normalize_report_excluded_descriptions()
+
+    included_incidents: list[dict] = []
+    excluded_count = 0
+    for incident in incidents:
+        description = _clean_ws(incident.get('description') or '')
+        if description.upper() in excluded:
+            excluded_count += 1
+            continue
+        included_incidents.append(incident)
 
     by_type: dict[str, int] = {}
-    for incident in incidents:
+    for incident in included_incidents:
         description = _clean_ws(incident.get('description') or '')
         if not description:
             continue
@@ -1583,14 +1614,14 @@ def _build_monthly_report(month: str, source_filter: str, radius_miles: float) -
     if top_types:
         top_description, top_count = top_types[0]
         top_incidents = [
-            incident for incident in incidents
+            incident for incident in included_incidents
             if _clean_ws(incident.get('description') or '') == top_description
         ]
         hotspot = _build_hotspot_summary(top_incidents, radius_miles)
         top_incident_type = {
             'description': top_description,
             'count': top_count,
-            'shareOfMonth': round(top_count / len(incidents), 4) if incidents else 0.0,
+            'shareOfMonth': round(top_count / len(included_incidents), 4) if included_incidents else 0.0,
             'geocodedCount': sum(1 for incident in top_incidents if _incident_coordinates(incident) is not None),
             'hotspot': hotspot,
         }
@@ -1615,13 +1646,16 @@ def _build_monthly_report(month: str, source_filter: str, radius_miles: float) -
         'source': source_filter,
         'radiusMiles': radius_miles,
         'generatedAt': datetime.now(timezone.utc).isoformat(),
-        'totalIncidents': len(incidents),
+        'totalIncidents': len(included_incidents),
+        'rawIncidentCount': len(incidents),
+        'excludedIncidentCount': excluded_count,
+        'excludedDescriptions': sorted(excluded),
         'topIncidentType': top_incident_type,
         'topTypes': [
             {
                 'description': description,
                 'count': count,
-                'shareOfMonth': round(count / len(incidents), 4) if incidents else 0.0,
+                'shareOfMonth': round(count / len(included_incidents), 4) if included_incidents else 0.0,
             }
             for description, count in top_types[:10]
         ],
@@ -1633,6 +1667,11 @@ def _build_monthly_report(month: str, source_filter: str, radius_miles: float) -
 @app.route('/')
 def index():
     return send_from_directory('public', 'index.html')
+
+@app.route('/reports')
+@app.route('/reports/')
+def reports():
+    return send_from_directory('public', 'reports.html')
 
 @app.route('/healthz')
 def healthz():
