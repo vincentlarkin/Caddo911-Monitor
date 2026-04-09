@@ -32,6 +32,7 @@
       min-height: 100vh;
       font-family: 'JetBrains Mono', monospace;
       color: var(--text);
+      color-scheme: dark;
       background:
         radial-gradient(circle at top, rgba(94, 162, 255, 0.13), transparent 26%),
         radial-gradient(circle at top right, rgba(255, 93, 93, 0.14), transparent 24%),
@@ -132,6 +133,9 @@
       padding: 16px;
       margin-bottom: 12px;
       align-items: end;
+      position: relative;
+      z-index: 20;
+      overflow: visible;
     }
 
     .field {
@@ -163,6 +167,7 @@
     .field select {
       appearance: none;
       cursor: pointer;
+      color-scheme: dark;
     }
 
     .field select,
@@ -204,7 +209,7 @@
       top: calc(100% + 8px);
       left: 0;
       right: 0;
-      z-index: 10;
+      z-index: 80;
       padding: 12px;
       border-radius: 16px;
       border: 1px solid var(--border);
@@ -293,9 +298,28 @@
     .summary-card {
       padding: 18px;
       margin-bottom: 14px;
+      position: relative;
+      z-index: 1;
       background:
         radial-gradient(circle at top right, rgba(255, 93, 93, 0.18), transparent 30%),
         linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02));
+    }
+
+    .report-note {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 190, 85, 0.16);
+      background:
+        linear-gradient(180deg, rgba(255, 190, 85, 0.08), rgba(255, 190, 85, 0.03)),
+        rgba(255, 255, 255, 0.02);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .report-note strong {
+      color: var(--text);
     }
 
     .summary-head {
@@ -539,13 +563,15 @@
       <div class="hero-copy">
         <p class="eyebrow">Caddo 911 Analytics</p>
         <h1>Monthly Incident Reports</h1>
-        <p>Review the top incident type for any available month, see the strongest 5-mile hotspot, and compare the top 10 incident categories. "Taken by other agency" and "Citizen Assistance" are excluded from these report totals.</p>
+        <p>Review the top incident type for any available month, see the strongest 5-mile hotspot, and compare the top 10 incident categories.</p>
       </div>
       <div class="hero-actions">
         <a class="hero-link" href="/">Back to Live Map</a>
         <a class="hero-link primary" href="https://github.com/vincentlarkin/Caddo911-Monitor" target="_blank" rel="noopener noreferrer">Project GitHub</a>
       </div>
     </header>
+
+    <p class="report-note"><strong>Filter note:</strong> these reports automatically remove generic dispatch buckets so the rankings stay meaningful. Current exclusions include "Taken by other agency," "Citizen Assistance," and "Caddo EMS Event."</p>
 
     <section class="control-bar">
       <label class="field">

@@ -31,7 +31,7 @@ DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
 # Archive settings: incidents older than this many days get moved to monthly archive DBs
 ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))
 BACKUP_RETENTION_WEEKS = int(os.environ.get('CADDO911_BACKUP_RETENTION_WEEKS', '5'))
-REPORT_CACHE_VERSION = 2
+REPORT_CACHE_VERSION = 3
 
 def _get_archive_dir() -> str:
     """Get the directory where archive DBs are stored (same dir as main DB)."""
@@ -1507,6 +1507,7 @@ def _top_counts(values: list[str], *, limit: int = 5, label_key: str = 'label') 
 DEFAULT_MONTHLY_REPORT_EXCLUDED_TYPES = {
     'TAKEN BY OTHER AGENCY',
     'CITIZEN ASSISTANCE',
+    'CADDO EMS EVENT',
 }
 
 
@@ -2115,6 +2116,7 @@ def get_monthly_report():
         radius_miles,
         excluded_descriptions=excluded,
     )
+    report['cacheVersion'] = REPORT_CACHE_VERSION
     if _is_past_month(month):
         _save_cached_monthly_report(report)
         report['isStatic'] = True
