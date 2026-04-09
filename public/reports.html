@@ -77,7 +77,7 @@
 
     .hero-copy p {
       margin: 0;
-      max-width: 680px;
+      max-width: 720px;
       color: var(--text-dim);
       font-size: 14px;
       line-height: 1.7;
@@ -127,15 +127,17 @@
 
     .control-bar {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr) auto;
       gap: 12px;
       padding: 16px;
       margin-bottom: 12px;
+      align-items: end;
     }
 
     .field {
       display: grid;
       gap: 7px;
+      position: relative;
     }
 
     .field span {
@@ -145,8 +147,8 @@
       text-transform: uppercase;
     }
 
-    .field input,
     .field select,
+    .month-trigger,
     .load-btn {
       min-height: 46px;
       border-radius: 12px;
@@ -158,9 +160,103 @@
       padding: 0 14px;
     }
 
+    .field select {
+      appearance: none;
+      cursor: pointer;
+    }
+
+    .field select,
+    .field select option {
+      color: var(--text);
+      background: #151924;
+    }
+
+    .month-trigger,
+    .load-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .month-trigger {
+      cursor: pointer;
+    }
+
+    .month-trigger::after {
+      content: 'v';
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .month-trigger[aria-expanded="true"]::after {
+      color: var(--blue);
+    }
+
+    .month-trigger.disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .month-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      z-index: 10;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(16, 19, 28, 0.98);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+      display: grid;
+      gap: 12px;
+    }
+
+    .month-year-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .month-year-heading {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .month-option {
+      min-height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .month-option:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-strong);
+    }
+
+    .month-option.active {
+      border-color: rgba(94, 162, 255, 0.45);
+      background: linear-gradient(180deg, rgba(94, 162, 255, 0.18), rgba(94, 162, 255, 0.08));
+    }
+
     .load-btn {
       align-self: end;
       cursor: pointer;
+      justify-content: center;
       font-family: 'Space Grotesk', sans-serif;
       font-weight: 700;
       border-color: rgba(94, 162, 255, 0.35);
@@ -171,6 +267,12 @@
     .load-btn:hover {
       transform: translateY(-1px);
       border-color: rgba(94, 162, 255, 0.5);
+    }
+
+    .load-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+      transform: none;
     }
 
     .status {
@@ -420,8 +522,13 @@
 
       .hero-actions,
       .source-pill,
-      .load-btn {
+      .load-btn,
+      .month-grid {
         width: 100%;
+      }
+
+      .month-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   </style>
@@ -432,7 +539,7 @@
       <div class="hero-copy">
         <p class="eyebrow">Caddo 911 Analytics</p>
         <h1>Monthly Incident Reports</h1>
-        <p>Review the top incident type for any month, see the strongest 5-mile hotspot, and compare the most common categories. "Taken by other agency" is excluded from these report totals.</p>
+        <p>Review the top incident type for any available month, see the strongest 5-mile hotspot, and compare the top 10 incident categories. "Taken by other agency" and "Citizen Assistance" are excluded from these report totals.</p>
       </div>
       <div class="hero-actions">
         <a class="hero-link" href="/">Back to Live Map</a>
@@ -443,7 +550,8 @@
     <section class="control-bar">
       <label class="field">
         <span>Month</span>
-        <input type="month" id="report-month">
+        <button class="month-trigger" id="report-month-trigger" type="button" aria-expanded="false" aria-controls="report-month-panel">Select a month</button>
+        <div class="month-panel hidden" id="report-month-panel"></div>
       </label>
       <label class="field">
         <span>Source</span>
@@ -457,7 +565,7 @@
       <button class="load-btn" id="report-load" type="button">Load Report</button>
     </section>
 
-    <div class="status" id="report-status">Pick a month to load a report.</div>
+    <div class="status" id="report-status">Loading available report months...</div>
 
     <section class="summary-card hidden" id="report-summary-card">
       <div class="summary-head">
@@ -521,11 +629,12 @@
       </article>
     </section>
 
-    <p class="footer-note">Reports are generated from the same live and archive databases used by the main site.</p>
+    <p class="footer-note">Past months are saved as static reports after first generation and then reused on later visits.</p>
   </div>
 
   <script>
-    const monthInput = document.getElementById('report-month');
+    const monthTrigger = document.getElementById('report-month-trigger');
+    const monthPanel = document.getElementById('report-month-panel');
     const sourceSelect = document.getElementById('report-source');
     const loadButton = document.getElementById('report-load');
     const statusEl = document.getElementById('report-status');
@@ -548,7 +657,9 @@
     const hotspotSubtitleEl = document.getElementById('report-hotspot-subtitle');
     const municipalitiesEl = document.getElementById('report-municipalities');
     const locationsEl = document.getElementById('report-locations');
-    const cache = new Map();
+    const reportCache = new Map();
+    let availableMonths = [];
+    let selectedMonth = '';
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -559,18 +670,18 @@
         .replace(/'/g, '&#39;');
     }
 
-    function defaultMonth() {
-      const now = new Date();
-      now.setDate(1);
-      now.setMonth(now.getMonth() - 1);
-      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    }
-
     function monthLabel(month) {
       if (!month || month.length !== 7) return 'Monthly report';
       const [year, monthPart] = month.split('-');
       const d = new Date(Number(year), Number(monthPart) - 1, 1);
       return Number.isNaN(d.getTime()) ? month : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    function shortMonthLabel(month) {
+      if (!month || month.length !== 7) return '--';
+      const [year, monthPart] = month.split('-');
+      const d = new Date(Number(year), Number(monthPart) - 1, 1);
+      return Number.isNaN(d.getTime()) ? month : d.toLocaleString('en-US', { month: 'short' });
     }
 
     function sourceLabel(source) {
@@ -597,6 +708,86 @@
       statusEl.classList.toggle('error', kind === 'error');
     }
 
+    function setMonthPanelOpen(open) {
+      monthPanel.classList.toggle('hidden', !open);
+      monthTrigger.setAttribute('aria-expanded', String(open));
+    }
+
+    function updateMonthTriggerLabel() {
+      monthTrigger.textContent = selectedMonth ? monthLabel(selectedMonth) : 'No report months available';
+      monthTrigger.classList.toggle('disabled', !availableMonths.length);
+      loadButton.disabled = !selectedMonth;
+    }
+
+    function renderMonthPanel() {
+      if (!availableMonths.length) {
+        monthPanel.innerHTML = '<div class="chip">No available months for this source.</div>';
+        updateMonthTriggerLabel();
+        return;
+      }
+
+      const grouped = new Map();
+      availableMonths.forEach((month) => {
+        const year = month.slice(0, 4);
+        if (!grouped.has(year)) grouped.set(year, []);
+        grouped.get(year).push(month);
+      });
+
+      monthPanel.innerHTML = Array.from(grouped.entries()).map(([year, months]) => `
+        <section class="month-year-group">
+          <div class="month-year-heading">${escapeHtml(year)}</div>
+          <div class="month-grid">
+            ${months.map((month) => `
+              <button class="month-option${month === selectedMonth ? ' active' : ''}" type="button" data-month="${escapeHtml(month)}">
+                ${escapeHtml(shortMonthLabel(month))}
+              </button>
+            `).join('')}
+          </div>
+        </section>
+      `).join('');
+
+      monthPanel.querySelectorAll('.month-option').forEach((button) => {
+        button.addEventListener('click', () => {
+          selectedMonth = button.dataset.month || '';
+          renderMonthPanel();
+          updateMonthTriggerLabel();
+          setMonthPanelOpen(false);
+          loadReport({ force: false });
+        });
+      });
+
+      updateMonthTriggerLabel();
+    }
+
+    async function loadAvailableMonths({ keepCurrent = true } = {}) {
+      const source = sourceSelect.value || 'all';
+      setStatus(`Loading available months for ${sourceLabel(source)}...`, 'loading');
+      try {
+        const response = await fetch(`/api/reports/available_months?source=${encodeURIComponent(source)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        availableMonths = Array.isArray(payload?.months) ? payload.months : [];
+        if (!keepCurrent || !availableMonths.includes(selectedMonth)) {
+          selectedMonth = payload?.latest || availableMonths[0] || '';
+        }
+        renderMonthPanel();
+        if (!selectedMonth) {
+          summaryCard.classList.add('hidden');
+          statsGrid.classList.add('hidden');
+          detailsGrid.classList.add('hidden');
+          setStatus('No monthly report data is available for that source yet.', 'error');
+          return;
+        }
+        setStatus(`Ready to load ${monthLabel(selectedMonth)}.`);
+      } catch (error) {
+        console.error('Failed to load available report months:', error);
+        availableMonths = [];
+        selectedMonth = '';
+        renderMonthPanel();
+        setStatus('Unable to load the available report months right now.', 'error');
+      }
+    }
+
     function renderChipList(target, rows, emptyLabel) {
       const items = Array.isArray(rows) ? rows : [];
       if (!items.length) {
@@ -609,7 +800,7 @@
     }
 
     function renderTopTypes(rows) {
-      const items = Array.isArray(rows) ? rows.slice(0, 6) : [];
+      const items = Array.isArray(rows) ? rows.slice(0, 10) : [];
       if (!items.length) {
         topTypesEl.innerHTML = `<span class="chip">No incidents for this month.</span>`;
         return;
@@ -662,13 +853,21 @@
     }
 
     async function loadReport({ force = false } = {}) {
-      const month = monthInput.value || defaultMonth();
+      const month = selectedMonth;
       const source = sourceSelect.value || 'all';
-      const cacheKey = `${month}|${source}`;
+      if (!month) {
+        setStatus('Select a valid month first.', 'error');
+        return;
+      }
+      if (!availableMonths.includes(month)) {
+        setStatus('That month is not available for the selected source.', 'error');
+        return;
+      }
 
-      if (!force && cache.has(cacheKey)) {
-        setStatus(`Showing cached report for ${monthLabel(month)}.`);
-        renderReport(cache.get(cacheKey));
+      const cacheKey = `${month}|${source}`;
+      if (!force && reportCache.has(cacheKey)) {
+        setStatus(`Showing cached browser copy for ${monthLabel(month)}.`);
+        renderReport(reportCache.get(cacheKey));
         return;
       }
 
@@ -686,13 +885,14 @@
         const response = await fetch(`/api/reports/monthly?${params.toString()}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const report = await response.json();
-        cache.set(cacheKey, report);
+        reportCache.set(cacheKey, report);
         renderReport(report);
         const excluded = Number(report?.excludedIncidentCount || 0);
+        const staticText = report?.isStatic ? 'Static saved report loaded.' : 'Live report loaded.';
         setStatus(
           excluded > 0
-            ? `${formatNumber(excluded)} "Taken by other agency" incidents were excluded from this report.`
-            : 'Report loaded.'
+            ? `${staticText} ${formatNumber(excluded)} excluded incidents were filtered out.`
+            : staticText
         );
       } catch (error) {
         console.error('Failed to fetch monthly report:', error);
@@ -700,11 +900,33 @@
       }
     }
 
-    monthInput.value = defaultMonth();
+    monthTrigger.addEventListener('click', () => {
+      if (!availableMonths.length) return;
+      const next = monthPanel.classList.contains('hidden');
+      setMonthPanelOpen(next);
+    });
+
     loadButton.addEventListener('click', () => loadReport({ force: true }));
-    monthInput.addEventListener('change', () => loadReport({ force: true }));
-    sourceSelect.addEventListener('change', () => loadReport({ force: true }));
-    loadReport();
+
+    sourceSelect.addEventListener('change', async () => {
+      reportCache.clear();
+      await loadAvailableMonths({ keepCurrent: false });
+      if (selectedMonth) {
+        loadReport({ force: false });
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      const path = event.composedPath ? event.composedPath() : [];
+      if (path.includes(monthTrigger) || path.includes(monthPanel)) return;
+      setMonthPanelOpen(false);
+    });
+
+    loadAvailableMonths({ keepCurrent: false }).then(() => {
+      if (selectedMonth) {
+        loadReport({ force: false });
+      }
+    });
   </script>
 </body>
 </html>

@@ -12,6 +12,7 @@ import os
 import sys
 import math
 import re
+import json
 from datetime import datetime, timezone, timedelta
 from threading import Thread
 from flask import Flask, jsonify, request, send_from_directory
@@ -30,6 +31,7 @@ DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
 # Archive settings: incidents older than this many days get moved to monthly archive DBs
 ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))
 BACKUP_RETENTION_WEEKS = int(os.environ.get('CADDO911_BACKUP_RETENTION_WEEKS', '5'))
+REPORT_CACHE_VERSION = 2
 
 def _get_archive_dir() -> str:
     """Get the directory where archive DBs are stored (same dir as main DB)."""
@@ -57,6 +59,11 @@ def _get_backup_dir() -> str:
     if configured:
         return configured
     return os.path.join(_get_archive_dir(), "backups")
+
+
+def _get_report_cache_dir() -> str:
+    """Directory where static monthly report JSON files are written."""
+    return os.path.join(_get_archive_dir(), "report_cache")
 
 def _backup_label_for_path(path: str) -> str:
     """Stable label for backup file naming."""
@@ -497,6 +504,12 @@ def _central_date_key(value: str | None) -> str | None:
     dt = _parse_iso_datetime(value)
     c = _to_central(dt)
     return c.date().isoformat() if c else None
+
+
+def _central_month_key(value: str | None) -> str | None:
+    dt = _parse_iso_datetime(value)
+    c = _to_central(dt)
+    return c.strftime('%Y-%m') if c else None
 
 def _to_central(dt: datetime | None) -> datetime | None:
     if not dt:
@@ -1493,6 +1506,7 @@ def _top_counts(values: list[str], *, limit: int = 5, label_key: str = 'label') 
 
 DEFAULT_MONTHLY_REPORT_EXCLUDED_TYPES = {
     'TAKEN BY OTHER AGENCY',
+    'CITIZEN ASSISTANCE',
 }
 
 
@@ -1504,6 +1518,132 @@ def _normalize_report_excluded_descriptions(raw_values: list[str] | None = None)
         if clean:
             normalized.add(clean.upper())
     return normalized
+
+
+def _query_report_rows_from_conn(
+    conn: sqlite3.Connection,
+    source_filter: str,
+    *,
+    ensure_source_column: bool = False,
+) -> list[dict]:
+    """Read lightweight rows needed for report availability checks."""
+    cursor = conn.cursor()
+    has_source_column = _ensure_incidents_source_column(conn) if ensure_source_column else _incidents_table_has_source_column(cursor)
+
+    if source_filter == 'all':
+        sql = 'SELECT first_seen, description, source FROM incidents' if has_source_column else 'SELECT first_seen, description, NULL as source FROM incidents'
+        args: tuple = ()
+    elif source_filter == 'caddo':
+        if has_source_column:
+            sql = (
+                "SELECT first_seen, description, source FROM incidents "
+                "WHERE source = 'caddo' OR source IS NULL OR TRIM(source) = ''"
+            )
+            args = ()
+        else:
+            sql = 'SELECT first_seen, description, NULL as source FROM incidents'
+            args = ()
+    elif not has_source_column:
+        return []
+    else:
+        sql = 'SELECT first_seen, description, source FROM incidents WHERE source = ?'
+        args = (source_filter,)
+
+    try:
+        cursor.execute(sql, args)
+    except sqlite3.OperationalError:
+        if source_filter not in ('all', 'caddo'):
+            return []
+        cursor.execute('SELECT first_seen, description, NULL as source FROM incidents')
+
+    rows = [dict(row) for row in cursor.fetchall()]
+    for row in rows:
+        row['source'] = _normalize_incident_source_for_read(row.get('source'))
+    return rows
+
+
+def _available_report_months(
+    source_filter: str,
+    *,
+    excluded_descriptions: set[str] | None = None,
+) -> list[str]:
+    excluded = excluded_descriptions if excluded_descriptions is not None else _normalize_report_excluded_descriptions()
+    months: set[str] = set()
+
+    conn = db_connect(row_factory=True)
+    try:
+        rows = _query_report_rows_from_conn(conn, source_filter, ensure_source_column=True)
+    finally:
+        conn.close()
+
+    for row in rows:
+        description = _clean_ws(row.get('description') or '')
+        if description.upper() in excluded:
+            continue
+        month_key = _central_month_key(row.get('first_seen'))
+        if month_key:
+            months.add(month_key)
+
+    for archive_path in _list_archive_dbs():
+        try:
+            archive_conn = _archive_db_connect(archive_path, row_factory=True)
+            try:
+                rows = _query_report_rows_from_conn(archive_conn, source_filter)
+            finally:
+                archive_conn.close()
+        except Exception as e:
+            log(f"[ARCHIVE] Error reading {archive_path}: {e}")
+            continue
+
+        for row in rows:
+            description = _clean_ws(row.get('description') or '')
+            if description.upper() in excluded:
+                continue
+            month_key = _central_month_key(row.get('first_seen'))
+            if month_key:
+                months.add(month_key)
+
+    return sorted(months, reverse=True)
+
+
+def _is_past_month(month: str) -> bool:
+    current_month = datetime.now(CENTRAL_TZ).strftime('%Y-%m')
+    return month < current_month
+
+
+def _monthly_report_cache_path(month: str, source_filter: str) -> str:
+    safe_source = re.sub(r'[^a-z0-9_-]+', '_', (source_filter or 'all').lower()).strip('_') or 'all'
+    filename = f"monthly_report_v{REPORT_CACHE_VERSION}_{safe_source}_{month}.json"
+    return os.path.join(_get_report_cache_dir(), filename)
+
+
+def _load_cached_monthly_report(month: str, source_filter: str) -> dict | None:
+    path = _monthly_report_cache_path(month, source_filter)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+        if int(data.get('cacheVersion') or 0) != REPORT_CACHE_VERSION:
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _save_cached_monthly_report(report: dict) -> None:
+    month = str(report.get('month') or '')
+    source_filter = str(report.get('source') or 'all')
+    if not month:
+        return
+    cache_dir = _get_report_cache_dir()
+    os.makedirs(cache_dir, exist_ok=True)
+    path = _monthly_report_cache_path(month, source_filter)
+    payload = dict(report)
+    payload['cacheVersion'] = REPORT_CACHE_VERSION
+    payload['isStatic'] = True
+    with open(path, 'w', encoding='utf-8') as fh:
+        json.dump(payload, fh, ensure_ascii=True, separators=(',', ':'))
 
 
 def _build_hotspot_summary(incidents: list[dict], radius_miles: float) -> dict | None:
@@ -1646,6 +1786,7 @@ def _build_monthly_report(
         'source': source_filter,
         'radiusMiles': radius_miles,
         'generatedAt': datetime.now(timezone.utc).isoformat(),
+        'isStatic': False,
         'totalIncidents': len(included_incidents),
         'rawIncidentCount': len(incidents),
         'excludedIncidentCount': excluded_count,
@@ -1958,7 +2099,40 @@ def get_monthly_report():
     if radius_miles is None or not math.isfinite(radius_miles) or radius_miles <= 0 or radius_miles > 50:
         return jsonify({'error': 'radius_miles must be a number between 0 and 50'}), 400
 
-    return jsonify(_build_monthly_report(month, source_filter, radius_miles))
+    excluded = _normalize_report_excluded_descriptions()
+    available_months = _available_report_months(source_filter, excluded_descriptions=excluded)
+    if month not in available_months:
+        return jsonify({'error': 'no report data available for that month and source'}), 404
+
+    if _is_past_month(month):
+        cached = _load_cached_monthly_report(month, source_filter)
+        if cached:
+            return jsonify(cached)
+
+    report = _build_monthly_report(
+        month,
+        source_filter,
+        radius_miles,
+        excluded_descriptions=excluded,
+    )
+    if _is_past_month(month):
+        _save_cached_monthly_report(report)
+        report['isStatic'] = True
+
+    return jsonify(report)
+
+
+@app.route('/api/reports/available_months')
+def get_available_report_months():
+    source_filter = _normalize_source_filter(request.args.get('source'))
+    excluded = _normalize_report_excluded_descriptions()
+    months = _available_report_months(source_filter, excluded_descriptions=excluded)
+    return jsonify({
+        'source': source_filter,
+        'months': months,
+        'latest': months[0] if months else None,
+        'excludedDescriptions': sorted(excluded),
+    })
 
 @app.route('/api/stats')
 def get_stats():
