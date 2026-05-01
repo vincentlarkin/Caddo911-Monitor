@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="/">
+  <title>Caddo 911 Radius Map Report</title>
+  <link rel="icon" href="/images/caddo911logo.png" type="image/png">
+  <link rel="icon" href="/images/caddo911logo.webp" type="image/webp">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090b12;
+      --bg-panel: #12141d;
+      --bg-card: #191c27;
+      --border: rgba(255, 255, 255, 0.1);
+      --border-strong: rgba(255, 255, 255, 0.2);
+      --text: #eef2fb;
+      --text-dim: #9aa4ba;
+      --red: #ff3b3b;
+      --orange: #ffb830;
+      --blue: #3b8bff;
+      --medical: #ff3b6b;
+      --green: #00ff88;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+      --header-height: 86px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text);
+      color-scheme: dark;
+      background: var(--bg-dark);
+      overflow-x: hidden;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .topbar {
+      min-height: var(--header-height);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(18, 20, 29, 0.98), rgba(18, 20, 29, 0.9));
+      position: sticky;
+      top: 0;
+      z-index: 3000;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand img {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      object-fit: contain;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(20px, 3vw, 30px);
+      line-height: 1;
+    }
+
+    .brand p {
+      margin: 4px 0 0;
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .topbar-link,
+    .run-btn {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--text);
+      text-decoration: none;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .topbar-link:hover,
+    .run-btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-strong);
+    }
+
+    .run-btn {
+      border-color: rgba(59, 139, 255, 0.5);
+      background: linear-gradient(180deg, rgba(59, 139, 255, 0.24), rgba(59, 139, 255, 0.1));
+    }
+
+    .report-shell {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: calc(100vh - var(--header-height));
+    }
+
+    .control-band {
+      display: grid;
+      grid-template-columns: minmax(240px, 1.25fr) auto minmax(150px, 0.7fr) minmax(150px, 0.7fr) minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(9, 11, 18, 0.96);
+      z-index: 2200;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .field span,
+    .field legend {
+      color: var(--text-dim);
+      font-size: 10px;
+      line-height: 1;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      min-height: 42px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #151924;
+      color: var(--text);
+      color-scheme: dark;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 0 12px;
+      outline: none;
+    }
+
+    .field select option {
+      background: #151924;
+      color: var(--text);
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: rgba(59, 139, 255, 0.65);
+      box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.12);
+    }
+
+    .radius-control,
+    .color-controls {
+      border: 0;
+      padding: 0;
+      margin: 0;
+    }
+
+    .radius-options,
+    .color-options {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .radius-options {
+      align-items: center;
+    }
+
+    .radius-option {
+      min-height: 42px;
+      min-width: 52px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .radius-option.active {
+      color: var(--text);
+      border-color: rgba(59, 139, 255, 0.55);
+      background: rgba(59, 139, 255, 0.16);
+    }
+
+    .custom-radius {
+      width: 86px !important;
+      min-height: 42px;
+      text-align: center;
+    }
+
+    .color-toggle {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--text);
+      font-size: 11px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .color-toggle input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .color-dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 10px rgba(59, 139, 255, 0.35);
+    }
+
+    .color-toggle[data-color="red"] .color-dot {
+      background: var(--red);
+      box-shadow: 0 0 10px rgba(255, 59, 59, 0.45);
+    }
+
+    .color-toggle[data-color="orange"] .color-dot {
+      background: var(--orange);
+      box-shadow: 0 0 10px rgba(255, 184, 48, 0.45);
+    }
+
+    .color-toggle[data-color="medical"] .color-dot {
+      background: var(--medical);
+      box-shadow: 0 0 10px rgba(255, 59, 107, 0.45);
+    }
+
+    .color-toggle:not(.checked) {
+      opacity: 0.48;
+    }
+
+    .color-toggle.checked {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .map-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+      min-height: 0;
+    }
+
+    .map-wrap {
+      min-height: calc(100vh - var(--header-height) - 72px);
+      position: relative;
+      background: #080a10;
+    }
+
+    #report-map {
+      position: absolute;
+      inset: 0;
+      min-height: 420px;
+    }
+
+    .map-status {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      z-index: 1000;
+      max-width: min(560px, calc(100% - 28px));
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(18, 20, 29, 0.92);
+      box-shadow: var(--shadow);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .map-status.loading {
+      color: var(--blue);
+    }
+
+    .map-status.error {
+      color: var(--red);
+    }
+
+    .side-panel {
+      min-height: 0;
+      overflow-y: auto;
+      border-left: 1px solid var(--border);
+      background: var(--bg-panel);
+      padding: 14px;
+      display: grid;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .score-panel,
+    .metric-panel,
+    .types-panel,
+    .incident-panel {
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.035);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    }
+
+    .score-panel {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      background:
+        linear-gradient(180deg, rgba(59, 139, 255, 0.12), rgba(255, 255, 255, 0.025)),
+        rgba(255, 255, 255, 0.035);
+    }
+
+    .score-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .score-head h2 {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+
+    .score-value {
+      flex: 0 0 auto;
+      min-width: 58px;
+      min-height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      border: 1px solid rgba(59, 139, 255, 0.45);
+      color: var(--blue);
+      background: rgba(59, 139, 255, 0.12);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    .score-summary {
+      margin: 0;
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    .score-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .mini-stat {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.055);
+    }
+
+    .mini-stat span {
+      color: var(--text-dim);
+      font-size: 10px;
+    }
+
+    .mini-stat strong {
+      color: var(--text);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+    }
+
+    .metric-panel,
+    .types-panel,
+    .incident-panel {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .panel-heading h3 {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 17px;
+    }
+
+    .panel-heading span {
+      color: var(--text-dim);
+      font-size: 11px;
+    }
+
+    .color-metrics {
+      display: grid;
+      gap: 8px;
+    }
+
+    .color-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .color-row.disabled {
+      opacity: 0.5;
+    }
+
+    .row-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .row-copy strong {
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .row-copy span {
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .row-count {
+      text-align: right;
+      display: grid;
+      gap: 3px;
+    }
+
+    .row-count strong {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 22px;
+    }
+
+    .row-count span {
+      color: var(--text-dim);
+      font-size: 10px;
+    }
+
+    .bar-list,
+    .incident-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .type-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .type-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+    }
+
+    .type-name {
+      max-width: 78%;
+      line-height: 1.35;
+    }
+
+    .type-track {
+      width: 100%;
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .type-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--red), var(--orange), var(--blue));
+    }
+
+    .incident-row {
+      display: grid;
+      gap: 5px;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .incident-row-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .incident-row-head strong {
+      color: var(--text);
+    }
+
+    .incident-row-head span {
+      color: var(--text-dim);
+      white-space: nowrap;
+    }
+
+    .incident-row p {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .empty-state {
+      padding: 18px;
+      border-radius: 8px;
+      border: 1px dashed rgba(255, 255, 255, 0.16);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    .leaflet-container {
+      background: #090b12;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .leaflet-popup-content-wrapper {
+      background: var(--bg-panel);
+      color: var(--text);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .leaflet-popup-tip {
+      background: var(--bg-panel);
+    }
+
+    .popup-title {
+      margin-bottom: 6px;
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .popup-detail {
+      color: var(--text-dim);
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 1180px) {
+      .control-band {
+        grid-template-columns: minmax(260px, 1fr) auto minmax(150px, 0.7fr) minmax(150px, 0.7fr);
+      }
+
+      .control-band .field.type-field,
+      .control-band .color-controls,
+      .control-band .run-btn {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .topbar {
+        position: relative;
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .topbar-actions,
+      .topbar-link {
+        width: 100%;
+      }
+
+      .control-band {
+        grid-template-columns: 1fr;
+      }
+
+      .control-band .field.type-field,
+      .control-band .color-controls,
+      .control-band .run-btn {
+        grid-column: auto;
+      }
+
+      .map-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .map-wrap {
+        min-height: 58vh;
+      }
+
+      .side-panel {
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
+    }
+
+    @media (max-width: 560px) {
+      .topbar,
+      .control-band,
+      .side-panel {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+
+      .score-meta {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="/images/caddo911logo.png" alt="Caddo 911">
+      <div>
+        <h1>Radius Map Report</h1>
+        <p>Cached incident density by address</p>
+      </div>
+    </div>
+    <nav class="topbar-actions" aria-label="Report navigation">
+      <a class="topbar-link" href="/reports">Reports</a>
+      <a class="topbar-link" href="/reports/monthly">Monthly</a>
+      <a class="topbar-link" href="/">Live Map</a>
+    </nav>
+  </header>
+
+  <main class="report-shell">
+    <form class="control-band" id="map-report-form">
+      <label class="field address-field">
+        <span>Address</span>
+        <input id="address-input" type="search" autocomplete="street-address" placeholder="Enter Address Here...">
+      </label>
+
+      <fieldset class="field radius-control">
+        <legend>Radius</legend>
+        <div class="radius-options" id="radius-options">
+          <button class="radius-option" type="button" data-radius="0.5">.5 mi</button>
+          <button class="radius-option active" type="button" data-radius="1">1 mi</button>
+          <button class="radius-option" type="button" data-radius="2">2 mi</button>
+          <input class="custom-radius" id="custom-radius" type="number" min="0.25" max="25" step="0.25" inputmode="decimal" placeholder="Custom">
+        </div>
+      </fieldset>
+
+      <label class="field">
+        <span>Period</span>
+        <select id="period-select">
+          <option value="all">All Data</option>
+          <option value="this_year">This Year</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Source</span>
+        <select id="source-select">
+          <option value="caddo">Caddo</option>
+          <option value="all">All</option>
+          <option value="batonrouge">Baton Rouge</option>
+          <option value="lafayette">Lafayette</option>
+        </select>
+      </label>
+
+      <label class="field type-field">
+        <span>Incident name</span>
+        <select id="incident-type-select">
+          <option value="all">All incident names</option>
+        </select>
+      </label>
+
+      <fieldset class="field color-controls">
+        <legend>Colors</legend>
+        <div class="color-options">
+          <label class="color-toggle checked" data-color="red">
+            <input type="checkbox" value="red" checked>
+            <span class="color-dot"></span>
+            <span>Red</span>
+          </label>
+          <label class="color-toggle checked" data-color="orange">
+            <input type="checkbox" value="orange" checked>
+            <span class="color-dot"></span>
+            <span>Orange</span>
+          </label>
+          <label class="color-toggle checked" data-color="blue">
+            <input type="checkbox" value="blue" checked>
+            <span class="color-dot"></span>
+            <span>Blue</span>
+          </label>
+          <label class="color-toggle checked" data-color="medical">
+            <input type="checkbox" value="medical" checked>
+            <span class="color-dot"></span>
+            <span>Medical</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <button class="run-btn" type="submit">Run Check</button>
+    </form>
+
+    <section class="map-layout">
+      <div class="map-wrap">
+        <div id="report-map" aria-label="Radius report map"></div>
+        <div class="map-status" id="map-status">Ready.</div>
+      </div>
+
+      <aside class="side-panel" aria-label="Map report results">
+        <section class="score-panel" id="score-panel">
+          <div class="score-head">
+            <h2 id="score-title">No address checked yet</h2>
+            <div class="score-value" id="score-value">--</div>
+          </div>
+          <p class="score-summary" id="score-summary">Run a check to compare a radius against cached Caddo 911 history.</p>
+          <div class="score-meta">
+            <div class="mini-stat">
+              <span>Matches</span>
+              <strong id="score-count">0</strong>
+            </div>
+            <div class="mini-stat">
+              <span>Peer avg</span>
+              <strong id="score-peer">0</strong>
+            </div>
+            <div class="mini-stat">
+              <span>Delta</span>
+              <strong id="score-delta">0</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="metric-panel">
+          <div class="panel-heading">
+            <h3>Color Rates</h3>
+            <span id="metric-period">All Data</span>
+          </div>
+          <div class="color-metrics" id="color-metrics"></div>
+        </section>
+
+        <section class="types-panel">
+          <div class="panel-heading">
+            <h3>Top Names</h3>
+            <span id="types-count">0 types</span>
+          </div>
+          <div class="bar-list" id="top-types"></div>
+        </section>
+
+        <section class="incident-panel">
+          <div class="panel-heading">
+            <h3>Nearby Incidents</h3>
+            <span id="incident-count">0 shown</span>
+          </div>
+          <div class="incident-list" id="incident-list"></div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const COLOR_HEX = {
+      red: '#ff3b3b',
+      orange: '#ffb830',
+      blue: '#3b8bff',
+      medical: '#ff3b6b'
+    };
+
+    const SOURCE_VIEWS = {
+      caddo: { center: [32.5252, -93.7502], zoom: 11 },
+      batonrouge: { center: [30.4515, -91.1871], zoom: 11 },
+      lafayette: { center: [30.2241, -92.0198], zoom: 11 },
+      all: { center: [31.0, -92.3], zoom: 7 }
+    };
+
+    const addressInput = document.getElementById('address-input');
+    const form = document.getElementById('map-report-form');
+    const sourceSelect = document.getElementById('source-select');
+    const periodSelect = document.getElementById('period-select');
+    const incidentTypeSelect = document.getElementById('incident-type-select');
+    const colorToggles = Array.from(document.querySelectorAll('.color-toggle'));
+    const radiusButtons = Array.from(document.querySelectorAll('.radius-option'));
+    const customRadiusInput = document.getElementById('custom-radius');
+    const statusEl = document.getElementById('map-status');
+    const scoreTitle = document.getElementById('score-title');
+    const scoreValue = document.getElementById('score-value');
+    const scoreSummary = document.getElementById('score-summary');
+    const scoreCount = document.getElementById('score-count');
+    const scorePeer = document.getElementById('score-peer');
+    const scoreDelta = document.getElementById('score-delta');
+    const metricPeriod = document.getElementById('metric-period');
+    const colorMetrics = document.getElementById('color-metrics');
+    const topTypes = document.getElementById('top-types');
+    const typesCount = document.getElementById('types-count');
+    const incidentList = document.getElementById('incident-list');
+    const incidentCount = document.getElementById('incident-count');
+    let radiusMiles = 1;
+    let optionsAbort = null;
+
+    const map = L.map('report-map', {
+      zoomControl: false,
+      preferCanvas: true,
+      minZoom: 7,
+      maxZoom: 19
+    }).setView(SOURCE_VIEWS.caddo.center, SOURCE_VIEWS.caddo.zoom);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const resultLayer = L.layerGroup().addTo(map);
+    const radiusLayer = L.layerGroup().addTo(map);
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatNumber(value, digits = 0) {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n)) return '0';
+      return n.toLocaleString('en-US', {
+        maximumFractionDigits: digits,
+        minimumFractionDigits: digits
+      });
+    }
+
+    function formatSigned(value) {
+      const n = Number(value || 0);
+      const sign = n > 0 ? '+' : '';
+      return `${sign}${formatNumber(n, Math.abs(n) < 10 ? 1 : 0)}`;
+    }
+
+    function formatRatio(value) {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n) || n <= 0) return '0x';
+      return `${formatNumber(n, n < 10 ? 1 : 0)}x`;
+    }
+
+    function formatPercent(value) {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n)) return '0%';
+      return `${Math.round(n * 100)}%`;
+    }
+
+    function monthLabel(month) {
+      if (!month || month === 'all') return 'All Data';
+      if (month === 'this_year') return 'This Year';
+      const [year, monthPart] = String(month).split('-');
+      const d = new Date(Number(year), Number(monthPart) - 1, 1);
+      return Number.isNaN(d.getTime()) ? month : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    function setStatus(message, kind = '') {
+      statusEl.textContent = message || '';
+      statusEl.classList.toggle('loading', kind === 'loading');
+      statusEl.classList.toggle('error', kind === 'error');
+    }
+
+    function selectedColors() {
+      const colors = colorToggles
+        .map(label => label.querySelector('input'))
+        .filter(input => input && input.checked)
+        .map(input => input.value);
+      return colors.length ? colors : ['red', 'orange', 'blue', 'medical'];
+    }
+
+    function syncColorToggles() {
+      colorToggles.forEach(label => {
+        const input = label.querySelector('input');
+        label.classList.toggle('checked', Boolean(input?.checked));
+      });
+    }
+
+    function setRadius(value) {
+      const parsed = Number(value);
+      radiusMiles = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+      const matchesPreset = radiusButtons.some(button => Number(button.dataset.radius) === radiusMiles);
+      radiusButtons.forEach(button => {
+        button.classList.toggle('active', Number(button.dataset.radius) === radiusMiles);
+      });
+      if (customRadiusInput) {
+        customRadiusInput.value = matchesPreset ? '' : String(radiusMiles);
+      }
+    }
+
+    function sourceView() {
+      return SOURCE_VIEWS[sourceSelect.value] || SOURCE_VIEWS.caddo;
+    }
+
+    function focusSource() {
+      const view = sourceView();
+      map.setView(view.center, view.zoom);
+    }
+
+    function populateMonths(months) {
+      const current = periodSelect.value || 'all';
+      const monthRows = Array.isArray(months) ? months : [];
+      periodSelect.innerHTML = `
+        <option value="all">All Data</option>
+        <option value="this_year">This Year</option>
+        ${monthRows.map(month => `<option value="${escapeHtml(month)}">${escapeHtml(monthLabel(month))}</option>`).join('')}
+      `;
+      periodSelect.value = current === 'all' || current === 'this_year' || monthRows.includes(current) ? current : 'all';
+    }
+
+    function populateIncidentTypes(types) {
+      const current = incidentTypeSelect.value || 'all';
+      const rows = Array.isArray(types) ? types : [];
+      incidentTypeSelect.innerHTML = `
+        <option value="all">All incident names</option>
+        ${rows.map(row => `
+          <option value="${escapeHtml(row.description)}">${escapeHtml(row.description)} (${formatNumber(row.count)})</option>
+        `).join('')}
+      `;
+      const stillAvailable = rows.some(row => row.description === current);
+      incidentTypeSelect.value = current === 'all' || stillAvailable ? current : 'all';
+    }
+
+    async function loadOptions() {
+      if (optionsAbort) optionsAbort.abort();
+      optionsAbort = new AbortController();
+      try {
+        const params = new URLSearchParams({
+          source: sourceSelect.value || 'caddo',
+          month: periodSelect.value || 'all',
+          colors: selectedColors().join(',')
+        });
+        const response = await fetch(`/api/reports/map/options?${params.toString()}`, {
+          signal: optionsAbort.signal
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        populateMonths(payload.months);
+        populateIncidentTypes(payload.incidentTypes);
+        metricPeriod.textContent = payload.periodLabel || monthLabel(periodSelect.value);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Failed to load map report options:', error);
+        setStatus('Unable to load report options.', 'error');
+      }
+    }
+
+    function markerPopup(incident) {
+      return `
+        <div class="popup-title">${escapeHtml(incident.description || 'Incident')}</div>
+        <div class="popup-detail">${escapeHtml(incident.locationLabel || incident.street || 'Unknown location')}</div>
+        <div class="popup-detail">${escapeHtml(incident.colorLabel || incident.color || '')} - ${escapeHtml(formatNumber(incident.distanceMiles, 2))} mi</div>
+      `;
+    }
+
+    function drawMap(report) {
+      resultLayer.clearLayers();
+      radiusLayer.clearLayers();
+
+      const target = report?.target;
+      if (!target) return;
+
+      const center = [Number(target.latitude), Number(target.longitude)];
+      const radiusMeters = Number(report.radiusMiles || radiusMiles) * 1609.344;
+
+      const circle = L.circle(center, {
+        radius: radiusMeters,
+        color: '#5ea2ff',
+        weight: 2,
+        fillColor: '#5ea2ff',
+        fillOpacity: 0.08,
+        opacity: 0.9
+      }).addTo(radiusLayer);
+
+      L.circleMarker(center, {
+        radius: 9,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: '#00ff88',
+        fillOpacity: 0.95
+      }).bindPopup(`<div class="popup-title">${escapeHtml(target.label || 'Address')}</div>`).addTo(radiusLayer);
+
+      const incidents = Array.isArray(report.incidents) ? report.incidents : [];
+      incidents.forEach(incident => {
+        const color = COLOR_HEX[incident.color] || '#9aa0aa';
+        L.circleMarker([incident.latitude, incident.longitude], {
+          radius: incident.color === 'medical' ? 6 : 5,
+          color: '#0a0a0f',
+          weight: 1,
+          fillColor: color,
+          fillOpacity: 0.88
+        }).bindPopup(markerPopup(incident)).addTo(resultLayer);
+      });
+
+      try {
+        const bounds = circle.getBounds();
+        incidents.slice(0, 200).forEach(incident => bounds.extend([incident.latitude, incident.longitude]));
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+      } catch (error) {
+        map.setView(center, 13);
+      }
+    }
+
+    function renderColorMetrics(rows) {
+      const metrics = Array.isArray(rows) ? rows : [];
+      if (!metrics.length) {
+        colorMetrics.innerHTML = '<div class="empty-state">No color metrics available.</div>';
+        return;
+      }
+
+      colorMetrics.innerHTML = metrics.map(row => {
+        const color = COLOR_HEX[row.key] || '#9aa0aa';
+        const ratio = row.ratioToPeer == null ? 'n/a' : formatRatio(row.ratioToPeer);
+        const peer = formatNumber(row.peerAverage, 1);
+        const pct = row.percentile == null ? '0%' : formatPercent(row.percentile);
+        return `
+          <div class="color-row${row.enabled ? '' : ' disabled'}">
+            <span class="color-dot" style="background:${color}; box-shadow:0 0 10px ${color}70"></span>
+            <div class="row-copy">
+              <strong>${escapeHtml(row.label)} - ${escapeHtml(row.verdict)}</strong>
+              <span>${ratio} peer average - ${pct} percentile - peer avg ${peer}</span>
+            </div>
+            <div class="row-count">
+              <strong>${escapeHtml(formatNumber(row.count))}</strong>
+              <span>in radius</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderTopTypes(rows) {
+      const items = Array.isArray(rows) ? rows : [];
+      typesCount.textContent = `${formatNumber(items.length)} type${items.length === 1 ? '' : 's'}`;
+      if (!items.length) {
+        topTypes.innerHTML = '<div class="empty-state">No matching incident names in this radius.</div>';
+        return;
+      }
+
+      const maxCount = Math.max(...items.map(row => Number(row.count || 0)), 1);
+      topTypes.innerHTML = items.map(row => {
+        const width = Math.max(5, Math.round((Number(row.count || 0) / maxCount) * 100));
+        return `
+          <div class="type-row">
+            <div class="type-meta">
+              <span class="type-name">${escapeHtml(row.description || 'Unknown')}</span>
+              <span>${escapeHtml(formatNumber(row.count))}</span>
+            </div>
+            <div class="type-track"><div class="type-fill" style="width:${width}%"></div></div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderIncidentList(rows) {
+      const items = Array.isArray(rows) ? rows.slice(0, 80) : [];
+      incidentCount.textContent = `${formatNumber(items.length)} shown`;
+      if (!items.length) {
+        incidentList.innerHTML = '<div class="empty-state">No matching incidents found in the selected radius.</div>';
+        return;
+      }
+
+      incidentList.innerHTML = items.map(incident => `
+        <article class="incident-row">
+          <div class="incident-row-head">
+            <strong>${escapeHtml(incident.description || 'Unknown')}</strong>
+            <span>${escapeHtml(formatNumber(incident.distanceMiles, 2))} mi</span>
+          </div>
+          <p>${escapeHtml(incident.locationLabel || incident.street || 'Unknown location')}</p>
+          <p>${escapeHtml(incident.colorLabel || incident.color || '')} - ${escapeHtml(incident.agency || 'Unknown agency')} - ${escapeHtml(incident.municipality || 'Unknown area')}</p>
+        </article>
+      `).join('');
+    }
+
+    function renderReport(report) {
+      const metric = report?.score || {};
+      const targetLabel = report?.target?.label || report?.address || 'Selected address';
+      scoreTitle.textContent = metric.verdict || 'Report ready';
+      scoreValue.textContent = Number.isFinite(Number(metric.score)) ? String(metric.score) : '--';
+      scoreSummary.textContent = report?.summary || `${targetLabel} checked.`;
+      scoreCount.textContent = formatNumber(metric.count);
+      scorePeer.textContent = formatNumber(metric.peerAverage, 1);
+      scoreDelta.textContent = formatSigned(metric.aboveAveragePoints);
+      metricPeriod.textContent = report?.periodLabel || monthLabel(periodSelect.value);
+      renderColorMetrics(report?.colorMetrics);
+      renderTopTypes(report?.topIncidentTypes);
+      renderIncidentList(report?.incidents);
+      drawMap(report);
+
+      if (Array.isArray(report?.incidentTypes)) {
+        populateIncidentTypes(report.incidentTypes);
+      }
+
+      const boundsNote = report?.target?.inSourceBounds ? '' : ' Geocoded address is outside the selected source boundary.';
+      setStatus(`${targetLabel}${boundsNote}`, report?.target?.inSourceBounds ? '' : 'error');
+    }
+
+    async function runAnalysis() {
+      const address = addressInput.value.trim();
+      if (!address) {
+        setStatus('Enter an address first. Best format: street address, city, LA ZIP.', 'error');
+        addressInput.focus();
+        return;
+      }
+
+      setStatus('Checking cached incidents around that address...', 'loading');
+      const params = new URLSearchParams({
+        address,
+        radius_miles: String(radiusMiles),
+        source: sourceSelect.value || 'caddo',
+        month: periodSelect.value || 'all',
+        colors: selectedColors().join(','),
+        incident_type: incidentTypeSelect.value || 'all'
+      });
+
+      try {
+        const response = await fetch(`/api/reports/map?${params.toString()}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload?.error || `HTTP ${response.status}`);
+        }
+        renderReport(payload);
+      } catch (error) {
+        console.error('Map report failed:', error);
+        setStatus(error.message || 'Unable to run the map report. Best format: street address, city, LA ZIP.', 'error');
+      }
+    }
+
+    radiusButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        setRadius(button.dataset.radius);
+        if (addressInput.value.trim()) runAnalysis();
+      });
+    });
+
+    customRadiusInput?.addEventListener('change', () => {
+      const raw = Number(customRadiusInput.value);
+      const clamped = Math.max(0.25, Math.min(25, Number.isFinite(raw) ? raw : 1));
+      setRadius(clamped);
+      if (addressInput.value.trim()) runAnalysis();
+    });
+
+    customRadiusInput?.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      customRadiusInput.blur();
+    });
+
+    colorToggles.forEach(label => {
+      const input = label.querySelector('input');
+      input?.addEventListener('change', () => {
+        syncColorToggles();
+        loadOptions();
+        if (addressInput.value.trim()) runAnalysis();
+      });
+    });
+
+    sourceSelect.addEventListener('change', () => {
+      focusSource();
+      loadOptions();
+      if (addressInput.value.trim()) runAnalysis();
+    });
+
+    periodSelect.addEventListener('change', () => {
+      loadOptions();
+      if (addressInput.value.trim()) runAnalysis();
+    });
+
+    incidentTypeSelect.addEventListener('change', () => {
+      if (addressInput.value.trim()) runAnalysis();
+    });
+
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      runAnalysis();
+    });
+
+    syncColorToggles();
+    setRadius(1);
+    focusSource();
+    loadOptions();
+  </script>
+</body>
+</html>

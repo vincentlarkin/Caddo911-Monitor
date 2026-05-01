@@ -14,7 +14,7 @@ import math
 import re
 import json
 from datetime import datetime, timezone, timedelta
-from threading import Thread
+from threading import Lock, Thread
 from flask import Flask, jsonify, request, send_from_directory
 from geopy.geocoders import Nominatim
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -548,6 +548,16 @@ AUTH_TOKEN = os.environ.get('CADDO911_AUTH_TOKEN')
 AUTH_USER = os.environ.get('CADDO911_AUTH_USER')
 AUTH_PASS = os.environ.get('CADDO911_AUTH_PASS')
 
+# Simple in-process report rate limiting. This is intentionally lightweight:
+# enough to slow accidental refresh loops and casual abuse without adding
+# infrastructure or dependencies.
+REPORT_PAGE_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_PAGE_RATE_LIMIT', '120'))
+REPORT_API_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_API_RATE_LIMIT', '90'))
+REPORT_MAP_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_MAP_RATE_LIMIT', '25'))
+REPORT_RATE_WINDOW_SECONDS = int(os.environ.get('CADDO911_REPORT_RATE_WINDOW_SECONDS', '60'))
+_report_rate_lock = Lock()
+_report_rate_hits: dict[tuple[str, str], list[float]] = {}
+
 def _unauthorized():
     resp = jsonify({'error': 'unauthorized'})
     resp.status_code = 401
@@ -567,6 +577,75 @@ def _check_auth() -> bool:
     auth = request.authorization
     return bool(auth) and auth.username == AUTH_USER and auth.password == AUTH_PASS
 
+
+def _client_ip_for_rate_limit() -> str:
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if forwarded_for:
+        return forwarded_for.split(',', 1)[0].strip() or 'unknown'
+    return request.remote_addr or 'unknown'
+
+
+def _report_rate_bucket(path: str) -> tuple[str, int] | None:
+    clean_path = path.rstrip('/') or '/'
+    if clean_path == '/api/reports/map':
+        return 'report-map', REPORT_MAP_RATE_LIMIT
+    if clean_path.startswith('/api/reports/'):
+        return 'report-api', REPORT_API_RATE_LIMIT
+    if clean_path == '/reports' or clean_path.startswith('/reports/'):
+        return 'report-page', REPORT_PAGE_RATE_LIMIT
+    return None
+
+
+def _rate_limited_response(retry_after_seconds: int):
+    resp = jsonify({
+        'error': 'rate_limited',
+        'message': 'Too many report requests. Please wait a moment and try again.',
+        'retryAfterSeconds': retry_after_seconds,
+    })
+    resp.status_code = 429
+    resp.headers['Retry-After'] = str(max(1, retry_after_seconds))
+    return resp
+
+
+def _check_report_rate_limit():
+    if REPORT_RATE_WINDOW_SECONDS <= 0:
+        return None
+
+    bucket = _report_rate_bucket(request.path)
+    if bucket is None:
+        return None
+
+    scope, limit = bucket
+    if limit <= 0:
+        return None
+
+    now = time.monotonic()
+    cutoff = now - REPORT_RATE_WINDOW_SECONDS
+    key = (_client_ip_for_rate_limit(), scope)
+
+    with _report_rate_lock:
+        hits = [stamp for stamp in _report_rate_hits.get(key, []) if stamp > cutoff]
+        if len(hits) >= limit:
+            oldest = min(hits) if hits else now
+            retry_after = max(1, int(math.ceil(REPORT_RATE_WINDOW_SECONDS - (now - oldest))))
+            _report_rate_hits[key] = hits
+            return _rate_limited_response(retry_after)
+
+        hits.append(now)
+        _report_rate_hits[key] = hits
+
+        # Opportunistic cleanup so the dict does not grow forever.
+        if len(_report_rate_hits) > 2000:
+            stale_keys = [
+                stored_key for stored_key, stored_hits in _report_rate_hits.items()
+                if not any(stamp > cutoff for stamp in stored_hits)
+            ]
+            for stored_key in stale_keys:
+                _report_rate_hits.pop(stored_key, None)
+
+    return None
+
+
 @app.before_request
 def _auth_middleware():
     # Allow container health checks without auth
@@ -574,6 +653,9 @@ def _auth_middleware():
         return None
     if not _check_auth():
         return _unauthorized()
+    limited = _check_report_rate_limit()
+    if limited is not None:
+        return limited
     return None
 
 @app.after_request
@@ -700,6 +782,7 @@ SOURCE_GEO_PROFILES = {
         "center_lon": -93.7502,
         "default_city": "Shreveport",
         "county": "Caddo Parish",
+        "area_sq_miles": 937.0,
         "polygon": CADDO_PARISH_RING_LON_LAT,
     },
     "lafayette": {
@@ -711,6 +794,7 @@ SOURCE_GEO_PROFILES = {
         "center_lon": -92.0198,
         "default_city": "Lafayette",
         "county": "Lafayette Parish",
+        "area_sq_miles": 270.0,
     },
     "batonrouge": {
         "lat_min": 30.20,
@@ -721,6 +805,7 @@ SOURCE_GEO_PROFILES = {
         "center_lon": -91.1871,
         "default_city": "Baton Rouge",
         "county": "East Baton Rouge Parish",
+        "area_sq_miles": 470.0,
     },
 }
 
@@ -1809,6 +1894,377 @@ def _build_monthly_report(
     }
 
 
+REPORT_MAP_COLOR_ORDER = ['red', 'orange', 'blue', 'medical']
+
+REPORT_MAP_COLOR_META = {
+    'red': {
+        'label': 'Red',
+        'description': 'Violence, weapons, major fire, and urgent life-safety calls',
+        'color': '#ff3b3b',
+    },
+    'orange': {
+        'label': 'Orange',
+        'description': 'Property crime, suspicious activity, hazards, and crashes',
+        'color': '#ffb830',
+    },
+    'blue': {
+        'label': 'Blue',
+        'description': 'Lower-risk assistance, welfare, traffic, and service calls',
+        'color': '#3b8bff',
+    },
+    'medical': {
+        'label': 'Medical',
+        'description': 'EMS and medical-emergency calls',
+        'color': '#ff3b6b',
+    },
+}
+
+REPORT_MAP_COLOR_TERMS = {
+    'medical': [
+        'medical emergency', 'caddo ems event', 'ems', 'unconscious', 'not breathing',
+        'difficulty breathing', 'choking', 'overdose', 'cardiac', 'heart', 'stroke',
+        'seizure', 'prisoner medical security',
+    ],
+    'red': [
+        'shots fired', 'shooting', 'shot fired', 'gun', 'armed', 'weapon',
+        'stabbing', 'stab', 'knife', 'assault', 'battery', 'domestic', 'fight',
+        'robbery', 'home invasion', 'kidnap', 'hostage', 'homicide', 'murder',
+        'rape', 'sexual', 'missing person', 'structure fire', 'house fire',
+        'apartment fire', 'building fire', 'fire emergency', 'explosion',
+        'major accident', 'injury accident', 'accident with injuries', 'fatal',
+        'entrap', 'rollover',
+    ],
+    'orange': [
+        'theft', 'burglary', 'stolen', 'shoplift', 'vandal', 'fraud',
+        'accident', 'crash', 'wreck', 'collision', 'mvc', 'mva',
+        'hit and run', 'hit run', 'traffic hazard', 'road hazard', 'debris',
+        'disabled vehicle', 'gas leak', 'smoke', 'fire alarm', 'alarm',
+        'loose livestock', 'livestock', 'loose animal', 'animal in roadway',
+        'disturbance', 'dispute', 'disorderly', 'suspicious', 'prowler',
+        'trespass', 'harassment', 'juvenile complaint',
+    ],
+    'blue': [
+        'assist', 'assist motorist', 'deliver message', 'periodic check',
+        'taken by other agency', 'follow up', 'followup', 'follow',
+        'investigation', 'report', 'information', 'citizen assist',
+        'citizen assistance', 'civil', 'welfare concern', 'welfare check',
+        'wellness check', 'property check', 'extra patrol', 'directed patrol',
+        'noise', 'complaint', 'parking', 'traffic control', 'traffic stop',
+        'traffic violation', 'minor accident', 'minor traffic accident',
+        'minor hit', 'lost property', 'found property', 'public service',
+        'special event stand by', 'transport', 'caddo fire district',
+    ],
+}
+
+
+def _normalize_report_text(value: str | None) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", (value or "").lower())).strip()
+
+
+def _report_text_includes_any(text: str, terms: list[str]) -> bool:
+    return any(term in text for term in terms)
+
+
+def _incident_report_color(incident: dict) -> str:
+    """Map an incident onto the user-facing report colors."""
+    description = _normalize_report_text(incident.get('description'))
+    agency = str(incident.get('agency') or '').upper()
+
+    if agency == 'EMS' or 'EMS' in agency or _report_text_includes_any(description, REPORT_MAP_COLOR_TERMS['medical']):
+        return 'medical'
+    if _report_text_includes_any(description, REPORT_MAP_COLOR_TERMS['red']):
+        return 'red'
+    if _report_text_includes_any(description, REPORT_MAP_COLOR_TERMS['blue']):
+        return 'blue'
+    if _report_text_includes_any(description, REPORT_MAP_COLOR_TERMS['orange']):
+        return 'orange'
+    return 'orange'
+
+
+def _parse_report_colors(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return list(REPORT_MAP_COLOR_ORDER)
+    colors: list[str] = []
+    for part in raw_value.split(','):
+        color = part.strip().lower()
+        if color in REPORT_MAP_COLOR_META and color not in colors:
+            colors.append(color)
+    return colors or list(REPORT_MAP_COLOR_ORDER)
+
+
+def _normalize_report_map_month(value: str | None) -> str | None:
+    month = (value or 'all').strip().lower()
+    if month in ('', 'all', '12mo', 'last12'):
+        return 'all'
+    if month in ('this_year', 'year', 'current_year'):
+        return 'this_year'
+    if len(month) == 7 and _central_month_bounds_utc(month) is not None:
+        return month
+    return None
+
+
+def _report_period_months(month: str, source_filter: str, excluded_descriptions: set[str]) -> list[str]:
+    available_months = _available_report_months(source_filter, excluded_descriptions=excluded_descriptions)
+    if month == 'all':
+        return available_months
+    if month == 'this_year':
+        year_prefix = f"{datetime.now(CENTRAL_TZ).year:04d}-"
+        return [month_key for month_key in available_months if month_key.startswith(year_prefix)]
+    return [month] if month in available_months else []
+
+
+def _load_report_period_incidents(
+    month: str,
+    source_filter: str,
+    *,
+    excluded_descriptions: set[str] | None = None,
+) -> list[dict]:
+    excluded = excluded_descriptions or set()
+    months = _report_period_months(month, source_filter, excluded)
+
+    incidents_by_hash: dict[str, dict] = {}
+    for month_key in months:
+        for incident in _load_month_incidents(month_key, source_filter):
+            description = _clean_ws(incident.get('description') or '')
+            if description.upper() in excluded:
+                continue
+            key = str(incident.get('hash') or f"{month_key}:{incident.get('source')}:{incident.get('id')}")
+            if key not in incidents_by_hash:
+                incidents_by_hash[key] = incident
+
+    incidents = list(incidents_by_hash.values())
+    incidents.sort(key=lambda row: row.get('first_seen') or '')
+    return incidents
+
+
+def _report_period_label(month: str) -> str:
+    if month == 'all':
+        return 'All Data'
+    if month == 'this_year':
+        return f"This Year ({datetime.now(CENTRAL_TZ).year})"
+    try:
+        year_s, month_s = month.split('-')
+        dt = datetime(int(year_s), int(month_s), 1)
+        return dt.strftime('%B %Y')
+    except Exception:
+        return month
+
+
+def _source_area_sq_miles(source_filter: str) -> float:
+    if source_filter == 'all':
+        return sum(float(profile.get('area_sq_miles') or 0) for profile in SOURCE_GEO_PROFILES.values())
+    profile = SOURCE_GEO_PROFILES.get(source_filter) or SOURCE_GEO_PROFILES['caddo']
+    return float(profile.get('area_sq_miles') or SOURCE_GEO_PROFILES['caddo']['area_sq_miles'])
+
+
+def _point_in_report_source_scope(lat: float, lon: float, source_filter: str) -> bool:
+    if source_filter == 'all':
+        return any(_is_in_source_bounds(lat, lon, source_name) for source_name in SOURCE_GEO_PROFILES)
+    return _is_in_source_bounds(lat, lon, source_filter)
+
+
+def _geocode_report_address(address: str, source_filter: str) -> dict | None:
+    address = _clean_ws(address)
+    if not address:
+        return None
+
+    source_names = list(SOURCE_GEO_PROFILES.keys()) if source_filter == 'all' else [source_filter]
+    queries: list[str] = []
+    for source_name in source_names:
+        profile = SOURCE_GEO_PROFILES.get(source_name) or SOURCE_GEO_PROFILES['caddo']
+        default_city = _clean_ws(profile.get('default_city') or '')
+        county = _clean_ws(profile.get('county') or '')
+        for query in (
+            address,
+            f"{address}, {default_city}, LA" if default_city else '',
+            f"{address}, {county}, LA" if county else '',
+            f"{address}, Louisiana",
+        ):
+            query = _clean_ws(query)
+            if query and query.lower() not in {q.lower() for q in queries}:
+                queries.append(query)
+
+    best_out_of_scope: dict | None = None
+    for provider_name, geocoder in (('arcgis', geolocator_arcgis), ('osm', geolocator_osm)):
+        for query in queries:
+            try:
+                if provider_name == 'osm':
+                    location = geocoder.geocode(query, country_codes='us', exactly_one=True, timeout=4)
+                else:
+                    location = geocoder.geocode(query, timeout=4)
+            except Exception:
+                continue
+            if not location:
+                continue
+
+            lat = float(location.latitude)
+            lon = float(location.longitude)
+            result = {
+                'latitude': round(lat, 6),
+                'longitude': round(lon, 6),
+                'label': getattr(location, 'address', None) or query,
+                'query': query,
+                'geocodeSource': provider_name,
+                'inSourceBounds': _point_in_report_source_scope(lat, lon, source_filter),
+            }
+            if result['inSourceBounds']:
+                return result
+            if best_out_of_scope is None:
+                best_out_of_scope = result
+
+    return best_out_of_scope
+
+
+def _decorate_report_map_incident(incident: dict) -> dict | None:
+    coords = _incident_coordinates(incident)
+    if coords is None:
+        return None
+    if _is_unknown_location(incident.get('street'), incident.get('cross_streets')):
+        return None
+
+    lat, lon = coords
+    color = _incident_report_color(incident)
+    row = dict(incident)
+    row['_reportColor'] = color
+    row['_reportColorLabel'] = REPORT_MAP_COLOR_META[color]['label']
+    row['_lat'] = lat
+    row['_lon'] = lon
+    return row
+
+
+def _report_incident_type_counts(incidents: list[dict], colors: list[str]) -> list[dict]:
+    color_set = set(colors)
+    counts: dict[str, dict] = {}
+    for incident in incidents:
+        color = incident.get('_reportColor') or _incident_report_color(incident)
+        if color not in color_set:
+            continue
+        description = _clean_ws(incident.get('description') or '')
+        if not description:
+            continue
+        bucket = counts.setdefault(description, {'description': description, 'count': 0, 'color': color})
+        bucket['count'] += 1
+    return sorted(counts.values(), key=lambda row: (-row['count'], row['description']))
+
+
+def _incident_matches_report_filters(incident: dict, colors: list[str], incident_type: str | None) -> bool:
+    if (incident.get('_reportColor') or _incident_report_color(incident)) not in set(colors):
+        return False
+    if incident_type:
+        return _clean_ws(incident.get('description') or '').upper() == incident_type.upper()
+    return True
+
+
+def _distance_miles_to_incident(target_lat: float, target_lon: float, incident: dict) -> float:
+    return _haversine_m(target_lat, target_lon, float(incident['_lat']), float(incident['_lon'])) / 1609.344
+
+
+def _sample_anchor_points(incidents: list[dict], *, limit: int = 450) -> list[dict]:
+    if len(incidents) <= limit:
+        return incidents
+    if limit <= 1:
+        return incidents[:1]
+    step = (len(incidents) - 1) / (limit - 1)
+    return [incidents[int(round(idx * step))] for idx in range(limit)]
+
+
+def _count_incidents_near(lat: float, lon: float, incidents: list[dict], radius_m: float) -> int:
+    count = 0
+    for incident in incidents:
+        if _haversine_m(lat, lon, float(incident['_lat']), float(incident['_lon'])) <= radius_m:
+            count += 1
+    return count
+
+
+def _map_score_label(count: int, ratio_to_peer: float | None, percentile: float | None) -> str:
+    ratio = ratio_to_peer if ratio_to_peer is not None else 0.0
+    pct = percentile if percentile is not None else 0.0
+    if count <= 0:
+        return 'No mapped cases'
+    if ratio >= 2.0 or pct >= 0.9:
+        return 'Well above average'
+    if ratio >= 1.25 or pct >= 0.75:
+        return 'Above average'
+    if ratio <= 0.65 and pct <= 0.35:
+        return 'Below average'
+    return 'Near average'
+
+
+def _map_score_value(count: int, ratio_to_peer: float | None, percentile: float | None) -> int:
+    if count <= 0:
+        return 0
+    ratio = max(float(ratio_to_peer or 1.0), 0.05)
+    pct = float(percentile if percentile is not None else 0.5)
+    score = 50 + (22 * math.log(ratio, 2)) + (18 * (pct - 0.5))
+    return max(0, min(100, int(round(score))))
+
+
+def _build_report_map_metric(
+    label: str,
+    period_incidents: list[dict],
+    target_incidents: list[dict],
+    anchor_incidents: list[dict],
+    *,
+    radius_miles: float,
+    source_area_sq_miles: float,
+) -> dict:
+    radius_m = radius_miles * 1609.344
+    circle_area = math.pi * (radius_miles ** 2)
+    total = len(period_incidents)
+    count = len(target_incidents)
+    expected_by_area = total * min(circle_area / max(source_area_sq_miles, 1.0), 1.0)
+    ratio_to_area = (count / expected_by_area) if expected_by_area > 0 else None
+
+    sampled_anchors = _sample_anchor_points(anchor_incidents)
+    peer_counts = [
+        _count_incidents_near(float(anchor['_lat']), float(anchor['_lon']), period_incidents, radius_m)
+        for anchor in sampled_anchors
+    ]
+    peer_average = (sum(peer_counts) / len(peer_counts)) if peer_counts else 0.0
+    ratio_to_peer = (count / peer_average) if peer_average > 0 else (None if count == 0 else count)
+    percentile = None
+    if peer_counts:
+        percentile = sum(1 for peer_count in peer_counts if peer_count <= count) / len(peer_counts)
+
+    score = _map_score_value(count, ratio_to_peer, percentile)
+    verdict = _map_score_label(count, ratio_to_peer, percentile)
+    above_average_points = count - peer_average
+
+    return {
+        'label': label,
+        'count': count,
+        'totalInPeriod': total,
+        'expectedByArea': round(expected_by_area, 2),
+        'peerAverage': round(peer_average, 2),
+        'aboveAveragePoints': round(above_average_points, 2),
+        'ratioToArea': round(ratio_to_area, 2) if ratio_to_area is not None else None,
+        'ratioToPeer': round(ratio_to_peer, 2) if ratio_to_peer is not None else None,
+        'percentile': round(percentile, 4) if percentile is not None else None,
+        'score': score,
+        'verdict': verdict,
+    }
+
+
+def _serialize_map_report_incident(incident: dict) -> dict:
+    return {
+        'id': incident.get('id'),
+        'description': incident.get('description'),
+        'agency': incident.get('agency'),
+        'time': incident.get('time'),
+        'street': incident.get('street'),
+        'crossStreets': incident.get('cross_streets'),
+        'municipality': incident.get('municipality'),
+        'source': incident.get('source'),
+        'firstSeen': incident.get('first_seen'),
+        'latitude': round(float(incident['_lat']), 6),
+        'longitude': round(float(incident['_lon']), 6),
+        'distanceMiles': round(float(incident.get('_distanceMiles') or 0), 2),
+        'color': incident.get('_reportColor'),
+        'colorLabel': incident.get('_reportColorLabel'),
+        'locationLabel': _incident_location_label(incident),
+    }
+
+
 # API Routes
 @app.route('/')
 def index():
@@ -1818,6 +2274,16 @@ def index():
 @app.route('/reports/')
 def reports():
     return send_from_directory('public', 'reports.html')
+
+@app.route('/reports/monthly')
+@app.route('/reports/monthly/')
+def monthly_reports():
+    return send_from_directory('public', 'monthly-reports.html')
+
+@app.route('/reports/map')
+@app.route('/reports/map/')
+def map_reports():
+    return send_from_directory('public', 'map-report.html')
 
 @app.route('/healthz')
 def healthz():
@@ -2137,6 +2603,182 @@ def get_available_report_months():
         'source': source_filter,
         'months': months,
         'latest': months[0] if months else None,
+        'excludedDescriptions': sorted(excluded),
+    })
+
+
+@app.route('/api/reports/map/options')
+def get_map_report_options():
+    source_filter = _normalize_source_filter(request.args.get('source'))
+    month = _normalize_report_map_month(request.args.get('month'))
+    if month is None:
+        return jsonify({'error': 'month must be all, this_year, or YYYY-MM'}), 400
+
+    colors = _parse_report_colors(request.args.get('colors'))
+    excluded = _normalize_report_excluded_descriptions()
+    months = _available_report_months(source_filter, excluded_descriptions=excluded)
+    incidents = _load_report_period_incidents(
+        month,
+        source_filter,
+        excluded_descriptions=excluded,
+    )
+    decorated = [
+        decorated for incident in incidents
+        if (decorated := _decorate_report_map_incident(incident)) is not None
+    ]
+
+    color_counts = {color: 0 for color in REPORT_MAP_COLOR_ORDER}
+    for incident in decorated:
+        color = incident.get('_reportColor') or _incident_report_color(incident)
+        if color in color_counts:
+            color_counts[color] += 1
+
+    return jsonify({
+        'source': source_filter,
+        'month': month,
+        'periodLabel': _report_period_label(month),
+        'months': months,
+        'latest': months[0] if months else None,
+        'colors': [
+            {
+                'key': color,
+                **REPORT_MAP_COLOR_META[color],
+                'count': color_counts.get(color, 0),
+            }
+            for color in REPORT_MAP_COLOR_ORDER
+        ],
+        'incidentTypes': _report_incident_type_counts(decorated, colors)[:250],
+        'totalIncidents': len(incidents),
+        'mappableIncidents': len(decorated),
+        'excludedDescriptions': sorted(excluded),
+    })
+
+
+@app.route('/api/reports/map')
+def get_map_report():
+    source_filter = _normalize_source_filter(request.args.get('source'))
+    month = _normalize_report_map_month(request.args.get('month'))
+    if month is None:
+        return jsonify({'error': 'month must be all, this_year, or YYYY-MM'}), 400
+
+    radius_miles = request.args.get('radius_miles', default=2.0, type=float)
+    if radius_miles is None or not math.isfinite(radius_miles) or radius_miles < 0.25 or radius_miles > 25:
+        return jsonify({'error': 'radius_miles must be a number between 0.25 and 25'}), 400
+
+    colors = _parse_report_colors(request.args.get('colors'))
+    incident_type_raw = _clean_ws(request.args.get('incident_type') or '')
+    incident_type = incident_type_raw if incident_type_raw and incident_type_raw.lower() != 'all' else None
+
+    target_lat = request.args.get('lat', type=float)
+    target_lon = request.args.get('lng', type=float)
+    address = _clean_ws(request.args.get('address') or '')
+    target = None
+    if target_lat is not None and target_lon is not None and math.isfinite(target_lat) and math.isfinite(target_lon):
+        target = {
+            'latitude': round(float(target_lat), 6),
+            'longitude': round(float(target_lon), 6),
+            'label': address or 'Selected point',
+            'query': None,
+            'geocodeSource': 'coordinates',
+            'inSourceBounds': _point_in_report_source_scope(float(target_lat), float(target_lon), source_filter),
+        }
+    elif address:
+        target = _geocode_report_address(address, source_filter)
+    else:
+        return jsonify({'error': 'address or lat/lng is required'}), 400
+
+    if not target:
+        return jsonify({'error': 'address could not be geocoded'}), 404
+
+    target_lat = float(target['latitude'])
+    target_lon = float(target['longitude'])
+    radius_m = radius_miles * 1609.344
+    excluded = _normalize_report_excluded_descriptions()
+    incidents = _load_report_period_incidents(
+        month,
+        source_filter,
+        excluded_descriptions=excluded,
+    )
+    mappable = [
+        decorated for incident in incidents
+        if (decorated := _decorate_report_map_incident(incident)) is not None
+    ]
+
+    for incident in mappable:
+        incident['_distanceMiles'] = _distance_miles_to_incident(target_lat, target_lon, incident)
+
+    in_radius = [
+        incident for incident in mappable
+        if float(incident.get('_distanceMiles') or 0) * 1609.344 <= radius_m
+    ]
+    selected_period = [
+        incident for incident in mappable
+        if _incident_matches_report_filters(incident, colors, incident_type)
+    ]
+    selected_in_radius = [
+        incident for incident in in_radius
+        if _incident_matches_report_filters(incident, colors, incident_type)
+    ]
+
+    source_area = _source_area_sq_miles(source_filter)
+    overall_metric = _build_report_map_metric(
+        incident_type or 'Selected colors',
+        selected_period,
+        selected_in_radius,
+        mappable,
+        radius_miles=radius_miles,
+        source_area_sq_miles=source_area,
+    )
+
+    color_metrics = []
+    for color in REPORT_MAP_COLOR_ORDER:
+        period_rows = [incident for incident in mappable if incident.get('_reportColor') == color]
+        radius_rows = [incident for incident in in_radius if incident.get('_reportColor') == color]
+        metric = _build_report_map_metric(
+            REPORT_MAP_COLOR_META[color]['label'],
+            period_rows,
+            radius_rows,
+            mappable,
+            radius_miles=radius_miles,
+            source_area_sq_miles=source_area,
+        )
+        color_metrics.append({
+            'key': color,
+            **REPORT_MAP_COLOR_META[color],
+            'enabled': color in set(colors),
+            **metric,
+        })
+
+    top_types = _report_incident_type_counts(selected_in_radius, REPORT_MAP_COLOR_ORDER)[:12]
+    available_types = _report_incident_type_counts(mappable, colors)[:250]
+    selected_in_radius.sort(key=lambda incident: (float(incident.get('_distanceMiles') or 0), incident.get('first_seen') or ''))
+
+    summary = (
+        f"{overall_metric['count']} matching incident"
+        f"{'' if overall_metric['count'] == 1 else 's'} found within {radius_miles:g} miles. "
+        f"That is {overall_metric['verdict'].lower()} for {_report_period_label(month)}."
+    )
+
+    return jsonify({
+        'address': address,
+        'target': target,
+        'source': source_filter,
+        'month': month,
+        'periodLabel': _report_period_label(month),
+        'radiusMiles': radius_miles,
+        'colors': colors,
+        'incidentType': incident_type,
+        'totalIncidents': len(incidents),
+        'mappableIncidents': len(mappable),
+        'incidentsInRadius': len(in_radius),
+        'matchingIncidentsInRadius': len(selected_in_radius),
+        'sourceAreaSqMiles': round(source_area, 2),
+        'score': overall_metric,
+        'summary': summary,
+        'colorMetrics': color_metrics,
+        'topIncidentTypes': top_types,
+        'incidentTypes': available_types,
+        'incidents': [_serialize_map_report_incident(incident) for incident in selected_in_radius[:500]],
         'excludedDescriptions': sorted(excluded),
     })
 

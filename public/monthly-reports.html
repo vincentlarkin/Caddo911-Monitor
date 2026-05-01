@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="/">
+  <title>Caddo 911 Monthly Reports</title>
+  <link rel="icon" href="images/caddo911logo.png" type="image/png">
+  <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090b12;
+      --bg-panel: #12141d;
+      --bg-card: #191c27;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.14);
+      --text: #eef2fb;
+      --text-dim: #97a0b8;
+      --red: #ff5d5d;
+      --amber: #ffbe55;
+      --blue: #5ea2ff;
+      --green: #3de6a3;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text);
+      color-scheme: dark;
+      background:
+        radial-gradient(circle at top, rgba(94, 162, 255, 0.13), transparent 26%),
+        radial-gradient(circle at top right, rgba(255, 93, 93, 0.14), transparent 24%),
+        linear-gradient(180deg, #090b12 0%, #0d1018 100%);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page-shell {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+
+    .hero {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .hero-copy {
+      max-width: 760px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--blue);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(30px, 5vw, 48px);
+      line-height: 1.04;
+    }
+
+    .hero-copy p {
+      margin: 0;
+      max-width: 720px;
+      color: var(--text-dim);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: 12px;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--text);
+      transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .hero-link.primary {
+      border-color: rgba(94, 162, 255, 0.35);
+      background: linear-gradient(180deg, rgba(94, 162, 255, 0.22), rgba(94, 162, 255, 0.1));
+    }
+
+    .hero-link:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-strong);
+    }
+
+    .control-bar,
+    .summary-card,
+    .stat-card,
+    .detail-card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(18, 20, 29, 0.88);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .control-bar {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr) auto;
+      gap: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      align-items: end;
+      position: relative;
+      z-index: 20;
+      overflow: visible;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      position: relative;
+    }
+
+    .field span {
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .field select,
+    .month-trigger,
+    .load-btn {
+      min-height: 46px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      padding: 0 14px;
+    }
+
+    .field select {
+      appearance: none;
+      cursor: pointer;
+      color-scheme: dark;
+    }
+
+    .field select,
+    .field select option {
+      color: var(--text);
+      background: #151924;
+    }
+
+    .month-trigger,
+    .load-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .month-trigger {
+      cursor: pointer;
+    }
+
+    .month-trigger::after {
+      content: 'v';
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .month-trigger[aria-expanded="true"]::after {
+      color: var(--blue);
+    }
+
+    .month-trigger.disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .month-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      z-index: 80;
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: rgba(16, 19, 28, 0.98);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+      display: grid;
+      gap: 12px;
+    }
+
+    .month-year-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .month-year-heading {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .month-option {
+      min-height: 38px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+    }
+
+    .month-option:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-strong);
+    }
+
+    .month-option.active {
+      border-color: rgba(94, 162, 255, 0.45);
+      background: linear-gradient(180deg, rgba(94, 162, 255, 0.18), rgba(94, 162, 255, 0.08));
+    }
+
+    .load-btn {
+      align-self: end;
+      cursor: pointer;
+      justify-content: center;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      border-color: rgba(94, 162, 255, 0.35);
+      background: linear-gradient(180deg, rgba(94, 162, 255, 0.24), rgba(94, 162, 255, 0.11));
+      transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .load-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(94, 162, 255, 0.5);
+    }
+
+    .load-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+      transform: none;
+    }
+
+    .status {
+      min-height: 20px;
+      margin-bottom: 14px;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+
+    .status.loading {
+      color: var(--blue);
+    }
+
+    .status.error {
+      color: var(--red);
+    }
+
+    .summary-card {
+      padding: 18px;
+      margin-bottom: 14px;
+      position: relative;
+      z-index: 1;
+      background:
+        radial-gradient(circle at top right, rgba(255, 93, 93, 0.18), transparent 30%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02));
+    }
+
+    .report-note {
+      margin: 0 0 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 190, 85, 0.16);
+      background:
+        linear-gradient(180deg, rgba(255, 190, 85, 0.08), rgba(255, 190, 85, 0.03)),
+        rgba(255, 255, 255, 0.02);
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+
+    .report-note strong {
+      color: var(--text);
+    }
+
+    .summary-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .summary-head h2 {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(22px, 3vw, 30px);
+    }
+
+    .source-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.05);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .summary-copy {
+      margin: 0;
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .stats-grid,
+    .details-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .stats-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 14px;
+    }
+
+    .stat-card {
+      padding: 15px 16px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .stat-card span {
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .stat-card strong {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .details-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .detail-card {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .detail-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .detail-head h3 {
+      margin: 0;
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 18px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .keyline {
+      display: grid;
+      gap: 4px;
+    }
+
+    .keyline strong {
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .keyline span {
+      color: var(--text-dim);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .bar-list,
+    .chip-groups {
+      display: grid;
+      gap: 10px;
+    }
+
+    .bar-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    .bar-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .bar-name {
+      max-width: 72%;
+      line-height: 1.35;
+    }
+
+    .bar-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--red), var(--amber));
+    }
+
+    .chip-group {
+      display: grid;
+      gap: 8px;
+    }
+
+    .chip-group-title {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.045);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .chip strong {
+      color: var(--blue);
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 12px;
+    }
+
+    .footer-note {
+      margin-top: 16px;
+      color: var(--text-dim);
+      font-size: 11px;
+      line-height: 1.7;
+      text-align: center;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      .control-bar,
+      .stats-grid,
+      .details-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .page-shell {
+        width: min(100vw - 20px, 1180px);
+        padding-top: 18px;
+      }
+
+      .hero,
+      .summary-head,
+      .detail-head {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .hero-actions,
+      .source-pill,
+      .load-btn,
+      .month-grid {
+        width: 100%;
+      }
+
+      .month-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Caddo 911 Analytics</p>
+        <h1>Monthly Incident Reports</h1>
+        <p>Review the top incident type for any available month, see the strongest 3-mile hotspot, and compare the top 10 incident categories.</p>
+      </div>
+      <div class="hero-actions">
+        <a class="hero-link" href="/reports">Reports</a>
+        <a class="hero-link" href="/">Back to Live Map</a>
+        <a class="hero-link primary" href="https://github.com/vincentlarkin/Caddo911-Monitor" target="_blank" rel="noopener noreferrer">Project GitHub</a>
+      </div>
+    </header>
+
+    <p class="report-note"><strong>Filter note:</strong> these reports automatically remove generic dispatch buckets so the rankings stay meaningful. Current exclusions include "Taken by other agency," "Citizen Assistance," and "Caddo EMS Event."</p>
+
+    <section class="control-bar">
+      <label class="field">
+        <span>Month</span>
+        <button class="month-trigger" id="report-month-trigger" type="button" aria-expanded="false" aria-controls="report-month-panel">Select a month</button>
+        <div class="month-panel hidden" id="report-month-panel"></div>
+      </label>
+      <label class="field">
+        <span>Source</span>
+        <select id="report-source">
+          <option value="all">All</option>
+          <option value="caddo">Caddo</option>
+          <option value="batonrouge">Baton Rouge</option>
+          <option value="lafayette">Lafayette</option>
+        </select>
+      </label>
+      <button class="load-btn" id="report-load" type="button">Load Report</button>
+    </section>
+
+    <div class="status" id="report-status">Loading available report months...</div>
+
+    <section class="summary-card hidden" id="report-summary-card">
+      <div class="summary-head">
+        <h2 id="report-title">Monthly report</h2>
+        <span class="source-pill" id="report-source-pill">All sources</span>
+      </div>
+      <p class="summary-copy" id="report-summary"></p>
+    </section>
+
+    <section class="stats-grid hidden" id="report-stats">
+      <article class="stat-card">
+        <span>Included incidents</span>
+        <strong id="report-total">0</strong>
+      </article>
+      <article class="stat-card">
+        <span>Excluded incidents</span>
+        <strong id="report-excluded">0</strong>
+      </article>
+      <article class="stat-card">
+        <span>Top type count</span>
+        <strong id="report-top-count">0</strong>
+      </article>
+      <article class="stat-card">
+        <span>3-mile hotspot</span>
+        <strong id="report-hotspot-count">0</strong>
+      </article>
+    </section>
+
+    <section class="details-grid hidden" id="report-details">
+      <article class="detail-card">
+        <div class="detail-head">
+          <h3>Most Common Incident Type</h3>
+          <span class="badge" id="report-top-share">0%</span>
+        </div>
+        <div class="keyline">
+          <strong id="report-top-type">--</strong>
+          <span id="report-top-meta">0 geocoded</span>
+        </div>
+        <div class="bar-list" id="report-top-types"></div>
+      </article>
+
+      <article class="detail-card">
+        <div class="detail-head">
+          <h3>Hotspot</h3>
+          <span class="badge" id="report-hotspot-badge">3-mile radius</span>
+        </div>
+        <div class="keyline">
+          <strong id="report-hotspot-anchor">--</strong>
+          <span id="report-hotspot-subtitle">--</span>
+        </div>
+        <div class="chip-groups">
+          <section class="chip-group">
+            <h4 class="chip-group-title">Top areas</h4>
+            <div class="chips" id="report-municipalities"></div>
+          </section>
+          <section class="chip-group">
+            <h4 class="chip-group-title">Nearby streets</h4>
+            <div class="chips" id="report-locations"></div>
+          </section>
+        </div>
+      </article>
+    </section>
+
+    <p class="footer-note">Past months are saved as static reports after first generation and then reused on later visits.</p>
+  </div>
+
+  <script>
+    const monthTrigger = document.getElementById('report-month-trigger');
+    const monthPanel = document.getElementById('report-month-panel');
+    const sourceSelect = document.getElementById('report-source');
+    const loadButton = document.getElementById('report-load');
+    const statusEl = document.getElementById('report-status');
+    const summaryCard = document.getElementById('report-summary-card');
+    const statsGrid = document.getElementById('report-stats');
+    const detailsGrid = document.getElementById('report-details');
+    const titleEl = document.getElementById('report-title');
+    const sourcePillEl = document.getElementById('report-source-pill');
+    const summaryEl = document.getElementById('report-summary');
+    const totalEl = document.getElementById('report-total');
+    const excludedEl = document.getElementById('report-excluded');
+    const topCountEl = document.getElementById('report-top-count');
+    const hotspotCountEl = document.getElementById('report-hotspot-count');
+    const topShareEl = document.getElementById('report-top-share');
+    const topTypeEl = document.getElementById('report-top-type');
+    const topMetaEl = document.getElementById('report-top-meta');
+    const topTypesEl = document.getElementById('report-top-types');
+    const hotspotBadgeEl = document.getElementById('report-hotspot-badge');
+    const hotspotAnchorEl = document.getElementById('report-hotspot-anchor');
+    const hotspotSubtitleEl = document.getElementById('report-hotspot-subtitle');
+    const municipalitiesEl = document.getElementById('report-municipalities');
+    const locationsEl = document.getElementById('report-locations');
+    const reportCache = new Map();
+    let availableMonths = [];
+    let selectedMonth = '';
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function monthLabel(month) {
+      if (!month || month.length !== 7) return 'Monthly report';
+      const [year, monthPart] = month.split('-');
+      const d = new Date(Number(year), Number(monthPart) - 1, 1);
+      return Number.isNaN(d.getTime()) ? month : d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    function shortMonthLabel(month) {
+      if (!month || month.length !== 7) return '--';
+      const [year, monthPart] = month.split('-');
+      const d = new Date(Number(year), Number(monthPart) - 1, 1);
+      return Number.isNaN(d.getTime()) ? month : d.toLocaleString('en-US', { month: 'short' });
+    }
+
+    function sourceLabel(source) {
+      if (source === 'all') return 'All sources';
+      if (source === 'batonrouge') return 'Baton Rouge only';
+      if (source === 'lafayette') return 'Lafayette only';
+      return 'Caddo only';
+    }
+
+    function formatNumber(value) {
+      const n = Number(value || 0);
+      return Number.isFinite(n) ? n.toLocaleString('en-US') : '0';
+    }
+
+    function formatPercent(value) {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n)) return '0%';
+      return `${(n * 100).toFixed(n >= 0.1 ? 0 : 1)}%`;
+    }
+
+    function setStatus(message, kind = '') {
+      statusEl.textContent = message || '';
+      statusEl.classList.toggle('loading', kind === 'loading');
+      statusEl.classList.toggle('error', kind === 'error');
+    }
+
+    function setMonthPanelOpen(open) {
+      monthPanel.classList.toggle('hidden', !open);
+      monthTrigger.setAttribute('aria-expanded', String(open));
+    }
+
+    function updateMonthTriggerLabel() {
+      monthTrigger.textContent = selectedMonth ? monthLabel(selectedMonth) : 'No report months available';
+      monthTrigger.classList.toggle('disabled', !availableMonths.length);
+      loadButton.disabled = !selectedMonth;
+    }
+
+    function renderMonthPanel() {
+      if (!availableMonths.length) {
+        monthPanel.innerHTML = '<div class="chip">No available months for this source.</div>';
+        updateMonthTriggerLabel();
+        return;
+      }
+
+      const grouped = new Map();
+      availableMonths.forEach((month) => {
+        const year = month.slice(0, 4);
+        if (!grouped.has(year)) grouped.set(year, []);
+        grouped.get(year).push(month);
+      });
+
+      monthPanel.innerHTML = Array.from(grouped.entries()).map(([year, months]) => `
+        <section class="month-year-group">
+          <div class="month-year-heading">${escapeHtml(year)}</div>
+          <div class="month-grid">
+            ${months.map((month) => `
+              <button class="month-option${month === selectedMonth ? ' active' : ''}" type="button" data-month="${escapeHtml(month)}">
+                ${escapeHtml(shortMonthLabel(month))}
+              </button>
+            `).join('')}
+          </div>
+        </section>
+      `).join('');
+
+      monthPanel.querySelectorAll('.month-option').forEach((button) => {
+        button.addEventListener('click', () => {
+          selectedMonth = button.dataset.month || '';
+          renderMonthPanel();
+          updateMonthTriggerLabel();
+          setMonthPanelOpen(false);
+          loadReport({ force: false });
+        });
+      });
+
+      updateMonthTriggerLabel();
+    }
+
+    async function loadAvailableMonths({ keepCurrent = true } = {}) {
+      const source = sourceSelect.value || 'all';
+      setStatus(`Loading available months for ${sourceLabel(source)}...`, 'loading');
+      try {
+        const response = await fetch(`/api/reports/available_months?source=${encodeURIComponent(source)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        availableMonths = Array.isArray(payload?.months) ? payload.months : [];
+        if (!keepCurrent || !availableMonths.includes(selectedMonth)) {
+          selectedMonth = payload?.latest || availableMonths[0] || '';
+        }
+        renderMonthPanel();
+        if (!selectedMonth) {
+          summaryCard.classList.add('hidden');
+          statsGrid.classList.add('hidden');
+          detailsGrid.classList.add('hidden');
+          setStatus('No monthly report data is available for that source yet.', 'error');
+          return;
+        }
+        setStatus(`Ready to load ${monthLabel(selectedMonth)}.`);
+      } catch (error) {
+        console.error('Failed to load available report months:', error);
+        availableMonths = [];
+        selectedMonth = '';
+        renderMonthPanel();
+        setStatus('Unable to load the available report months right now.', 'error');
+      }
+    }
+
+    function renderChipList(target, rows, emptyLabel) {
+      const items = Array.isArray(rows) ? rows : [];
+      if (!items.length) {
+        target.innerHTML = `<span class="chip">${escapeHtml(emptyLabel)}</span>`;
+        return;
+      }
+      target.innerHTML = items.map((row) => (
+        `<span class="chip"><strong>${escapeHtml(formatNumber(row?.count))}</strong> ${escapeHtml(row?.name || row?.label || 'Unknown')}</span>`
+      )).join('');
+    }
+
+    function renderTopTypes(rows) {
+      const items = Array.isArray(rows) ? rows.slice(0, 10) : [];
+      if (!items.length) {
+        topTypesEl.innerHTML = `<span class="chip">No incidents for this month.</span>`;
+        return;
+      }
+      const maxCount = Math.max(...items.map((row) => Number(row?.count || 0)), 1);
+      topTypesEl.innerHTML = items.map((row) => {
+        const count = Number(row?.count || 0);
+        const width = Math.max(6, Math.round((count / maxCount) * 100));
+        return `
+          <div class="bar-row">
+            <div class="bar-meta">
+              <span class="bar-name">${escapeHtml(row?.description || 'Unknown')}</span>
+              <span>${escapeHtml(formatNumber(count))}</span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${width}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderReport(report) {
+      const top = report?.topIncidentType || null;
+      const hotspot = top?.hotspot || null;
+
+      titleEl.textContent = monthLabel(report?.month);
+      sourcePillEl.textContent = sourceLabel(report?.source);
+      summaryEl.textContent = report?.summary || 'No incidents available for the selected month.';
+      totalEl.textContent = formatNumber(report?.totalIncidents);
+      excludedEl.textContent = formatNumber(report?.excludedIncidentCount);
+      topCountEl.textContent = formatNumber(top?.count);
+      hotspotCountEl.textContent = formatNumber(hotspot?.incidentCount);
+      topShareEl.textContent = formatPercent(top?.shareOfMonth);
+      topTypeEl.textContent = top?.description || 'No ranked incident type';
+      topMetaEl.textContent = `${formatNumber(top?.geocodedCount)} geocoded incidents`;
+      hotspotBadgeEl.textContent = `${Number(report?.radiusMiles || 3).toFixed(0)}-mile radius`;
+      hotspotAnchorEl.textContent = hotspot?.anchor?.label || hotspot?.anchor?.municipality || 'No hotspot available';
+      hotspotSubtitleEl.textContent = hotspot
+        ? `${formatNumber(hotspot.incidentCount)} incidents clustered near this area`
+        : 'No mapped hotspot available for this report';
+
+      renderTopTypes(report?.topTypes);
+      renderChipList(municipalitiesEl, hotspot?.topMunicipalities, 'No area data');
+      renderChipList(locationsEl, hotspot?.topLocations, 'No street data');
+
+      summaryCard.classList.remove('hidden');
+      statsGrid.classList.remove('hidden');
+      detailsGrid.classList.remove('hidden');
+    }
+
+    async function loadReport({ force = false } = {}) {
+      const month = selectedMonth;
+      const source = sourceSelect.value || 'all';
+      if (!month) {
+        setStatus('Select a valid month first.', 'error');
+        return;
+      }
+      if (!availableMonths.includes(month)) {
+        setStatus('That month is not available for the selected source.', 'error');
+        return;
+      }
+
+      const cacheKey = `${month}|${source}`;
+      if (!force && reportCache.has(cacheKey)) {
+        setStatus(`Showing cached browser copy for ${monthLabel(month)}.`);
+        renderReport(reportCache.get(cacheKey));
+        return;
+      }
+
+      summaryCard.classList.add('hidden');
+      statsGrid.classList.add('hidden');
+      detailsGrid.classList.add('hidden');
+      setStatus(`Loading report for ${monthLabel(month)}...`, 'loading');
+
+      try {
+        const params = new URLSearchParams({
+          month,
+          source,
+          radius_miles: '3'
+        });
+        const response = await fetch(`/api/reports/monthly?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const report = await response.json();
+        reportCache.set(cacheKey, report);
+        renderReport(report);
+        const excluded = Number(report?.excludedIncidentCount || 0);
+        const staticText = report?.isStatic ? 'Static saved report loaded.' : 'Live report loaded.';
+        setStatus(
+          excluded > 0
+            ? `${staticText} ${formatNumber(excluded)} excluded incidents were filtered out.`
+            : staticText
+        );
+      } catch (error) {
+        console.error('Failed to fetch monthly report:', error);
+        setStatus('Unable to load the monthly report right now.', 'error');
+      }
+    }
+
+    monthTrigger.addEventListener('click', () => {
+      if (!availableMonths.length) return;
+      const next = monthPanel.classList.contains('hidden');
+      setMonthPanelOpen(next);
+    });
+
+    loadButton.addEventListener('click', () => loadReport({ force: true }));
+
+    sourceSelect.addEventListener('change', async () => {
+      reportCache.clear();
+      await loadAvailableMonths({ keepCurrent: false });
+      if (selectedMonth) {
+        loadReport({ force: false });
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      const path = event.composedPath ? event.composedPath() : [];
+      if (path.includes(monthTrigger) || path.includes(monthPanel)) return;
+      setMonthPanelOpen(false);
+    });
+
+    loadAvailableMonths({ keepCurrent: false }).then(() => {
+      if (selectedMonth) {
+        loadReport({ force: false });
+      }
+    });
+  </script>
+</body>
+</html>
