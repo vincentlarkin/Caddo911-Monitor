@@ -26,7 +26,46 @@ from sources import batonrouge as batonrouge_source
 app = Flask(__name__, static_folder='public', static_url_path='')
 
 # Database setup
-DB_PATH = os.environ.get('CADDO911_DB_PATH', 'caddo911.db')
+def _resolve_db_path() -> str:
+    """
+    Pick the live SQLite database path.
+
+    Production installs commonly keep the git checkout in ./repo and the
+    persistent SQLite files in a sibling ./data directory. Keep
+    CADDO911_DB_PATH as the strongest override, then auto-detect that layout so
+    report pages read the same DBs as the scraper.
+    """
+    configured_path = os.environ.get('CADDO911_DB_PATH', '').strip()
+    if configured_path:
+        return os.path.expanduser(configured_path)
+
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    cwd = os.getcwd()
+    configured_data_dir = os.environ.get('CADDO911_DATA_DIR', '').strip()
+    candidate_dirs = [
+        configured_data_dir,
+        os.path.join(app_dir, 'data'),
+        os.path.join(os.path.dirname(app_dir), 'data'),
+        os.path.join(cwd, 'data'),
+        os.path.join(os.path.dirname(cwd), 'data'),
+        '/data',
+    ]
+
+    seen: set[str] = set()
+    for data_dir in candidate_dirs:
+        if not data_dir:
+            continue
+        db_path = os.path.abspath(os.path.expanduser(os.path.join(data_dir, 'caddo911.db')))
+        if db_path in seen:
+            continue
+        seen.add(db_path)
+        if os.path.exists(db_path):
+            return db_path
+
+    return 'caddo911.db'
+
+
+DB_PATH = _resolve_db_path()
 
 # Archive settings: incidents older than this many days get moved to monthly archive DBs
 ARCHIVE_AFTER_DAYS = int(os.environ.get('CADDO911_ARCHIVE_DAYS', '30'))

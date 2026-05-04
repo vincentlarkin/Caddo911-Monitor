@@ -128,6 +128,12 @@
       background: linear-gradient(180deg, rgba(59, 139, 255, 0.24), rgba(59, 139, 255, 0.1));
     }
 
+    .run-btn:disabled {
+      cursor: wait;
+      opacity: 0.72;
+      transform: none;
+    }
+
     .report-shell {
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -156,6 +162,13 @@
       color: var(--text-dim);
       font-size: 10px;
       line-height: 1;
+    }
+
+    .field-hint {
+      color: var(--text-muted);
+      font-size: 10px;
+      line-height: 1.3;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .field input,
@@ -686,7 +699,8 @@
     <form class="control-band" id="map-report-form">
       <label class="field address-field">
         <span>Address</span>
-        <input id="address-input" type="search" autocomplete="street-address" placeholder="Enter Address Here...">
+        <input id="address-input" type="search" autocomplete="street-address" placeholder="1234 Market St, Shreveport, LA 71101" aria-describedby="address-format-hint">
+        <small class="field-hint" id="address-format-hint">Use street number + street, city, LA ZIP. Example: 1234 Market St, Shreveport, LA 71101.</small>
       </label>
 
       <fieldset class="field radius-control">
@@ -750,7 +764,7 @@
         </div>
       </fieldset>
 
-      <button class="run-btn" type="submit">Run Check</button>
+      <button class="run-btn" id="run-check-btn" type="submit">Run Check</button>
     </form>
 
     <section class="map-layout">
@@ -834,6 +848,7 @@
     const radiusButtons = Array.from(document.querySelectorAll('.radius-option'));
     const customRadiusInput = document.getElementById('custom-radius');
     const statusEl = document.getElementById('map-status');
+    const runButton = document.getElementById('run-check-btn');
     const scoreTitle = document.getElementById('score-title');
     const scoreValue = document.getElementById('score-value');
     const scoreSummary = document.getElementById('score-summary');
@@ -1153,12 +1168,16 @@
     async function runAnalysis() {
       const address = addressInput.value.trim();
       if (!address) {
-        setStatus('Enter an address first. Best format: street address, city, LA ZIP.', 'error');
+        setStatus('Enter an address first. Format: street number + street, city, LA ZIP.', 'error');
         addressInput.focus();
         return;
       }
 
       setStatus('Checking cached incidents around that address...', 'loading');
+      if (runButton) {
+        runButton.disabled = true;
+        runButton.textContent = 'Checking...';
+      }
       const params = new URLSearchParams({
         address,
         radius_miles: String(radiusMiles),
@@ -1177,7 +1196,12 @@
         renderReport(payload);
       } catch (error) {
         console.error('Map report failed:', error);
-        setStatus(error.message || 'Unable to run the map report. Best format: street address, city, LA ZIP.', 'error');
+        setStatus(error.message || 'Unable to run the map report. Format: street number + street, city, LA ZIP.', 'error');
+      } finally {
+        if (runButton) {
+          runButton.disabled = false;
+          runButton.textContent = 'Run Check';
+        }
       }
     }
 

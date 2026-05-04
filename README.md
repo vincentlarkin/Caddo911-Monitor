@@ -93,7 +93,8 @@ python app.py --backup --backup-main-only
 
 ### Environment (optional)
 
-- `CADDO911_DB_PATH` (default: `caddo911.db`)
+- `CADDO911_DB_PATH` (default: auto-detect `data/caddo911.db`, sibling `../data/caddo911.db`, `/data/caddo911.db`, then `caddo911.db`)
+- `CADDO911_DATA_DIR` (optional data directory used during DB auto-detection)
 - `CADDO911_ARCHIVE_DAYS` (default: `30`)
 - `CADDO911_BACKUP_DIR` (default: `<db dir>/backups`)
 - `CADDO911_BACKUP_RETENTION_WEEKS` (default: `5`, keep the most recent 5 weekly snapshots per DB)
