@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <base href="/">
   <title>Caddo 911 Radius Map Report</title>
-  <link rel="icon" href="/images/caddo911logo.png" type="image/png">
-  <link rel="icon" href="/images/caddo911logo.webp" type="image/webp">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/images/caddo911-icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/images/caddo911-icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest?v=3.2.94LAbeta">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -368,6 +370,47 @@
 
     .map-status.error {
       color: var(--red);
+    }
+
+    .map-progress {
+      position: absolute;
+      left: 14px;
+      top: 14px;
+      z-index: 1000;
+      width: min(360px, calc(100% - 28px));
+      display: none;
+      gap: 7px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(59, 139, 255, 0.24);
+      background: rgba(18, 20, 29, 0.92);
+      box-shadow: var(--shadow);
+    }
+
+    .map-progress.visible {
+      display: grid;
+    }
+
+    .map-progress-track {
+      width: 100%;
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.09);
+    }
+
+    .map-progress-fill {
+      width: 8%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      transition: width 0.35s ease;
+    }
+
+    .map-progress-label {
+      color: var(--text-dim);
+      font-size: 10px;
+      line-height: 1.35;
     }
 
     .side-panel {
@@ -807,6 +850,12 @@
     <section class="map-layout">
       <div class="map-wrap">
         <div id="report-map" aria-label="Radius report map"></div>
+        <div class="map-progress" id="map-progress" aria-hidden="true">
+          <div class="map-progress-track">
+            <div class="map-progress-fill" id="map-progress-fill"></div>
+          </div>
+          <div class="map-progress-label" id="map-progress-label">Preparing report...</div>
+        </div>
         <div class="map-status" id="map-status">Ready.</div>
       </div>
 
@@ -889,6 +938,9 @@
     const radiusButtons = Array.from(document.querySelectorAll('.radius-option'));
     const customRadiusInput = document.getElementById('custom-radius');
     const statusEl = document.getElementById('map-status');
+    const progressEl = document.getElementById('map-progress');
+    const progressFill = document.getElementById('map-progress-fill');
+    const progressLabel = document.getElementById('map-progress-label');
     const runButton = document.getElementById('run-check-btn');
     const scoreTitle = document.getElementById('score-title');
     const scoreValue = document.getElementById('score-value');
@@ -905,6 +957,8 @@
     let radiusMiles = 1;
     let optionsAbort = null;
     let analysisAbort = null;
+    let progressTimer = null;
+    let progressValue = 0;
     const STRICT_ADDRESS_RE = /^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},?\s+[A-Za-z .'-]{2,},?\s+(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$/i;
 
     const map = L.map('report-map', {
@@ -972,6 +1026,54 @@
       statusEl.textContent = message || '';
       statusEl.classList.toggle('loading', kind === 'loading');
       statusEl.classList.toggle('error', kind === 'error');
+    }
+
+    function setProgress(value, label = '') {
+      progressValue = Math.max(0, Math.min(100, Number(value) || 0));
+      if (progressFill) progressFill.style.width = `${progressValue}%`;
+      if (progressLabel && label) progressLabel.textContent = label;
+    }
+
+    function startProgress() {
+      if (progressTimer) clearInterval(progressTimer);
+      progressEl?.classList.add('visible');
+      progressEl?.setAttribute('aria-hidden', 'false');
+      setProgress(8, 'Geocoding address...');
+      const stages = [
+        [24, 'Loading historical rows...'],
+        [48, 'Building map index...'],
+        [68, 'Scoring peer areas...'],
+        [84, 'Preparing incident markers...'],
+        [92, 'Almost ready...']
+      ];
+      let stageIndex = 0;
+      progressTimer = setInterval(() => {
+        const next = stages[Math.min(stageIndex, stages.length - 1)];
+        const target = next[0];
+        const label = next[1];
+        const increment = Math.max(1, Math.round((target - progressValue) * 0.34));
+        setProgress(Math.min(target, progressValue + increment), label);
+        if (progressValue >= target && stageIndex < stages.length - 1) stageIndex += 1;
+      }, 850);
+    }
+
+    function finishProgress(label = 'Report ready.') {
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = null;
+      setProgress(100, label);
+      setTimeout(() => {
+        if (progressTimer) return;
+        progressEl?.classList.remove('visible');
+        progressEl?.setAttribute('aria-hidden', 'true');
+      }, 450);
+    }
+
+    function stopProgress() {
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = null;
+      progressEl?.classList.remove('visible');
+      progressEl?.setAttribute('aria-hidden', 'true');
+      setProgress(0, 'Preparing report...');
     }
 
     function validateAddressInput(value) {
@@ -1239,7 +1341,12 @@
       }
 
       const boundsNote = report?.target?.inSourceBounds ? '' : ' Geocoded address is outside the selected source boundary.';
-      setStatus(`${targetLabel}${boundsNote}`, report?.target?.inSourceBounds ? '' : 'error');
+      const elapsedMs = Number(report?.processing?.elapsedMs);
+      const processed = Number(report?.mappableIncidents);
+      const perfNote = Number.isFinite(elapsedMs) && Number.isFinite(processed)
+        ? ` - ${formatNumber(processed)} rows scored in ${formatNumber(elapsedMs / 1000, 1)}s`
+        : '';
+      setStatus(`${targetLabel}${perfNote}${boundsNote}`, report?.target?.inSourceBounds ? '' : 'error');
     }
 
     async function runAnalysis() {
@@ -1262,10 +1369,11 @@
       }
       setColorError('');
 
+      startProgress();
       setStatus('Checking cached incidents around that address...', 'loading');
       if (runButton) {
         runButton.disabled = true;
-        runButton.textContent = 'Checking...';
+        runButton.textContent = 'Working...';
       }
       const params = new URLSearchParams({
         address,
@@ -1278,7 +1386,7 @@
 
       if (analysisAbort) analysisAbort.abort();
       analysisAbort = new AbortController();
-      const timeoutId = setTimeout(() => analysisAbort.abort(), 8000);
+      const timeoutId = setTimeout(() => analysisAbort.abort(), 60000);
 
       try {
         const response = await fetch(`/api/reports/map?${params.toString()}`, {
@@ -1288,11 +1396,13 @@
         if (!response.ok) {
           throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
         }
+        finishProgress(`Mapped ${formatNumber(payload?.mappableIncidents)} historical rows.`);
         renderReport(payload);
       } catch (error) {
         console.error('Map report failed:', error);
+        stopProgress();
         const message = error.name === 'AbortError'
-          ? 'Request timed out. Check the address format and try again.'
+          ? 'This request is taking longer than expected. Try a single month or this year, then rerun all data.'
           : (error.message || 'Unable to run the map report. Format: 1234 Market St, Shreveport, LA 71101.');
         if (/address/i.test(message)) {
           setAddressError(message);

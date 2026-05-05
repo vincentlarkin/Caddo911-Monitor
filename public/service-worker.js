@@ -1,4 +1,4 @@
-const CACHE_NAME = 'caddo911-shell-v3.2.93LAbeta';
+const CACHE_NAME = 'caddo911-shell-v3.2.94LAbeta';
 const CORE_ASSETS = [
   new URL('./', self.location).toString(),
   new URL('./index.html', self.location).toString(),
@@ -6,6 +6,10 @@ const CORE_ASSETS = [
   new URL('./reports.html', self.location).toString(),
   new URL('./styles.css', self.location).toString(),
   new URL('./manifest.webmanifest', self.location).toString(),
+  new URL('./favicon.ico', self.location).toString(),
+  new URL('./images/caddo911-icon-192.png', self.location).toString(),
+  new URL('./images/caddo911-icon-512.png', self.location).toString(),
+  new URL('./images/caddo911-maskable-512.png', self.location).toString(),
   new URL('./images/caddo911logo.png', self.location).toString(),
   new URL('./images/caddo911logo.webp', self.location).toString(),
   new URL('./images/cfd-fire.png', self.location).toString(),

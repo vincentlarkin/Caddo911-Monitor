@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CADDO 911 LIVE</title>
-  <link rel="icon" href="images/caddo911logo.png" type="image/png">
-  <link rel="icon" href="images/caddo911logo.webp" type="image/webp">
-  <link rel="apple-touch-icon" href="images/caddo911logo.png">
-  <link rel="manifest" href="manifest.webmanifest?v=3.2.92LAbeta">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/images/caddo911-icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/images/caddo911-icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest?v=3.2.94LAbeta">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -2902,7 +2902,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=3.2.92LAbeta', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=3.2.94LAbeta', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);

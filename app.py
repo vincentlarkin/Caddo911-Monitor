@@ -1693,6 +1693,12 @@ def _available_report_months(
     excluded_descriptions: set[str] | None = None,
 ) -> list[str]:
     excluded = excluded_descriptions if excluded_descriptions is not None else _normalize_report_excluded_descriptions()
+    cache_key = (source_filter, tuple(sorted(excluded)))
+    now = time.monotonic()
+    cached = _available_report_months_cache.get(cache_key)
+    if cached and now - cached[0] <= REPORT_MAP_PERIOD_CACHE_TTL_SECONDS:
+        return list(cached[1])
+
     months: set[str] = set()
 
     conn = db_connect(row_factory=True)
@@ -1728,7 +1734,12 @@ def _available_report_months(
             if month_key:
                 months.add(month_key)
 
-    return sorted(months, reverse=True)
+    result = sorted(months, reverse=True)
+    _available_report_months_cache[cache_key] = (now, result)
+    if len(_available_report_months_cache) > 8:
+        oldest_key = min(_available_report_months_cache, key=lambda key: _available_report_months_cache[key][0])
+        _available_report_months_cache.pop(oldest_key, None)
+    return list(result)
 
 
 def _is_past_month(month: str) -> bool:
@@ -1939,8 +1950,11 @@ REPORT_MAP_ADDRESS_RE = re.compile(
     r"^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},?\s+[A-Za-z .'-]{2,},?\s+(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$",
     re.IGNORECASE,
 )
-REPORT_MAP_EXACT_SCORE_LIMIT = int(os.environ.get('CADDO911_REPORT_EXACT_SCORE_LIMIT', '50000'))
+REPORT_MAP_EXACT_SCORE_LIMIT = int(os.environ.get('CADDO911_REPORT_EXACT_SCORE_LIMIT', '12000'))
+REPORT_MAP_PERIOD_CACHE_TTL_SECONDS = int(os.environ.get('CADDO911_REPORT_PERIOD_CACHE_TTL_SECONDS', '120'))
 _report_geocode_cache: dict[tuple[str, str], dict | None] = {}
+_report_period_cache: dict[tuple[str, str, tuple[str, ...]], tuple[float, dict]] = {}
+_available_report_months_cache: dict[tuple[str, tuple[str, ...]], tuple[float, list[str]]] = {}
 
 REPORT_MAP_COLOR_META = {
     'red': {
@@ -2081,6 +2095,48 @@ def _load_report_period_incidents(
     return incidents
 
 
+def _load_report_period_dataset(
+    month: str,
+    source_filter: str,
+    *,
+    excluded_descriptions: set[str] | None = None,
+) -> dict:
+    excluded = excluded_descriptions or set()
+    cache_key = (month, source_filter, tuple(sorted(excluded)))
+    now = time.monotonic()
+    cached = _report_period_cache.get(cache_key)
+    if cached and now - cached[0] <= REPORT_MAP_PERIOD_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    incidents = _load_report_period_incidents(
+        month,
+        source_filter,
+        excluded_descriptions=excluded,
+    )
+    mappable = [
+        decorated for incident in incidents
+        if (decorated := _decorate_report_map_incident(incident)) is not None
+    ]
+
+    color_counts = {color: 0 for color in REPORT_MAP_COLOR_ORDER}
+    for incident in mappable:
+        color = incident.get('_reportColor') or _incident_report_color(incident)
+        if color in color_counts:
+            color_counts[color] += 1
+
+    dataset = {
+        'incidents': incidents,
+        'mappable': mappable,
+        'colorCounts': color_counts,
+        'createdAt': datetime.now(timezone.utc).isoformat(),
+    }
+    _report_period_cache[cache_key] = (now, dataset)
+    if len(_report_period_cache) > 18:
+        oldest_key = min(_report_period_cache, key=lambda key: _report_period_cache[key][0])
+        _report_period_cache.pop(oldest_key, None)
+    return dataset
+
+
 def _report_period_label(month: str) -> str:
     if month == 'all':
         return 'All Data'
@@ -2143,11 +2199,18 @@ def _geocode_report_address(address: str, source_filter: str) -> dict | None:
                 queries.append(query)
 
     best_out_of_scope: dict | None = None
-    for query in queries[:3]:
+    for query in queries[:4]:
         try:
-            location = geolocator_arcgis.geocode(query, timeout=2)
+            location = geolocator_arcgis.geocode(query, timeout=5)
         except Exception:
-            continue
+            location = None
+        provider = 'arcgis'
+        if not location:
+            try:
+                location = geolocator_osm.geocode(query, country_codes='us', exactly_one=True, timeout=5)
+                provider = 'osm'
+            except Exception:
+                continue
         if not location:
             continue
 
@@ -2158,7 +2221,7 @@ def _geocode_report_address(address: str, source_filter: str) -> dict | None:
             'longitude': round(lon, 6),
             'label': getattr(location, 'address', None) or query,
             'query': query,
-            'geocodeSource': 'arcgis',
+            'geocodeSource': provider,
             'inSourceBounds': _point_in_report_source_scope(lat, lon, source_filter),
         }
         if result['inSourceBounds']:
@@ -2273,6 +2336,31 @@ def _build_report_spatial_index(incidents: list[dict], cell_size: float) -> dict
     return index
 
 
+def _candidate_incidents_near(
+    lat: float,
+    lon: float,
+    incidents: list[dict],
+    radius_m: float,
+    *,
+    spatial_index: dict[tuple[int, int], list[dict]] | None = None,
+    cell_size: float | None = None,
+) -> list[dict]:
+    if spatial_index is None or not cell_size:
+        return incidents
+
+    radius_miles = radius_m / 1609.344
+    lat_range = max(1, math.ceil((radius_miles / 69.0) / cell_size) + 1)
+    cos_lat = max(0.2, abs(math.cos(math.radians(lat))))
+    lon_range = max(1, math.ceil((radius_miles / (69.0 * cos_lat)) / cell_size) + 1)
+    base_lat_cell = math.floor(lat / cell_size)
+    base_lon_cell = math.floor(lon / cell_size)
+    nearby: list[dict] = []
+    for lat_cell in range(base_lat_cell - lat_range, base_lat_cell + lat_range + 1):
+        for lon_cell in range(base_lon_cell - lon_range, base_lon_cell + lon_range + 1):
+            nearby.extend(spatial_index.get((lat_cell, lon_cell), []))
+    return nearby
+
+
 def _count_incidents_near(
     lat: float,
     lon: float,
@@ -2282,19 +2370,14 @@ def _count_incidents_near(
     spatial_index: dict[tuple[int, int], list[dict]] | None = None,
     cell_size: float | None = None,
 ) -> int:
-    candidates = incidents
-    if spatial_index is not None and cell_size:
-        radius_miles = radius_m / 1609.344
-        lat_range = max(1, math.ceil((radius_miles / 69.0) / cell_size) + 1)
-        cos_lat = max(0.2, abs(math.cos(math.radians(lat))))
-        lon_range = max(1, math.ceil((radius_miles / (69.0 * cos_lat)) / cell_size) + 1)
-        base_lat_cell = math.floor(lat / cell_size)
-        base_lon_cell = math.floor(lon / cell_size)
-        nearby: list[dict] = []
-        for lat_cell in range(base_lat_cell - lat_range, base_lat_cell + lat_range + 1):
-            for lon_cell in range(base_lon_cell - lon_range, base_lon_cell + lon_range + 1):
-                nearby.extend(spatial_index.get((lat_cell, lon_cell), []))
-        candidates = nearby
+    candidates = _candidate_incidents_near(
+        lat,
+        lon,
+        incidents,
+        radius_m,
+        spatial_index=spatial_index,
+        cell_size=cell_size,
+    )
 
     count = 0
     for incident in candidates:
@@ -2761,21 +2844,14 @@ def get_map_report_options():
         colors = list(REPORT_MAP_COLOR_ORDER)
     excluded = _normalize_report_excluded_descriptions()
     months = _available_report_months(source_filter, excluded_descriptions=excluded)
-    incidents = _load_report_period_incidents(
+    dataset = _load_report_period_dataset(
         month,
         source_filter,
         excluded_descriptions=excluded,
     )
-    decorated = [
-        decorated for incident in incidents
-        if (decorated := _decorate_report_map_incident(incident)) is not None
-    ]
-
-    color_counts = {color: 0 for color in REPORT_MAP_COLOR_ORDER}
-    for incident in decorated:
-        color = incident.get('_reportColor') or _incident_report_color(incident)
-        if color in color_counts:
-            color_counts[color] += 1
+    incidents = dataset['incidents']
+    decorated = dataset['mappable']
+    color_counts = dataset['colorCounts']
 
     return jsonify({
         'source': source_filter,
@@ -2800,6 +2876,7 @@ def get_map_report_options():
 
 @app.route('/api/reports/map')
 def get_map_report():
+    report_started_at = time.perf_counter()
     source_filter = _normalize_source_filter(request.args.get('source'))
     month = _normalize_report_map_month(request.args.get('month'))
     if month is None:
@@ -2845,21 +2922,29 @@ def get_map_report():
     target_lon = float(target['longitude'])
     radius_m = radius_miles * 1609.344
     excluded = _normalize_report_excluded_descriptions()
-    incidents = _load_report_period_incidents(
+    dataset = _load_report_period_dataset(
         month,
         source_filter,
         excluded_descriptions=excluded,
     )
-    mappable = [
-        decorated for incident in incidents
-        if (decorated := _decorate_report_map_incident(incident)) is not None
-    ]
+    incidents = dataset['incidents']
+    mappable = [dict(incident) for incident in dataset['mappable']]
 
-    for incident in mappable:
+    cell_size = _report_spatial_cell_size(radius_miles)
+    spatial_index = _build_report_spatial_index(mappable, cell_size)
+    radius_candidates = _candidate_incidents_near(
+        target_lat,
+        target_lon,
+        mappable,
+        radius_m,
+        spatial_index=spatial_index,
+        cell_size=cell_size,
+    )
+    for incident in radius_candidates:
         incident['_distanceMiles'] = _distance_miles_to_incident(target_lat, target_lon, incident)
 
     in_radius = [
-        incident for incident in mappable
+        incident for incident in radius_candidates
         if float(incident.get('_distanceMiles') or 0) * 1609.344 <= radius_m
     ]
     selected_period = [
@@ -2928,6 +3013,13 @@ def get_map_report():
         'colorMetrics': color_metrics,
         'topIncidentTypes': top_types,
         'incidents': [_serialize_map_report_incident(incident) for incident in selected_in_radius[:200]],
+        'processing': {
+            'elapsedMs': int(round((time.perf_counter() - report_started_at) * 1000)),
+            'periodCacheSeconds': REPORT_MAP_PERIOD_CACHE_TTL_SECONDS,
+            'peerSampleLimit': REPORT_MAP_EXACT_SCORE_LIMIT,
+            'radiusCandidateCount': len(radius_candidates),
+            'returnedIncidentLimit': 200,
+        },
         'excludedDescriptions': sorted(excluded),
     })
 
