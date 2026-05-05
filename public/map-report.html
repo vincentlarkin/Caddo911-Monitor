@@ -210,13 +210,18 @@
       box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.12);
     }
 
-    .field.invalid > span {
+    .field.invalid > span,
+    .field.invalid > legend {
       color: var(--red);
     }
 
     .field.invalid input {
       border-color: rgba(255, 59, 59, 0.82);
       box-shadow: 0 0 0 3px rgba(255, 59, 59, 0.14);
+    }
+
+    .color-controls.invalid .color-toggle {
+      border-color: rgba(255, 59, 59, 0.42);
     }
 
     .field.invalid .field-hint {
@@ -772,27 +777,28 @@
       <fieldset class="field color-controls">
         <legend>Colors</legend>
         <div class="color-options">
-          <label class="color-toggle checked" data-color="red">
-            <input type="checkbox" value="red" checked>
+          <label class="color-toggle" data-color="red">
+            <input type="checkbox" value="red">
             <span class="color-dot"></span>
             <span>Red</span>
           </label>
-          <label class="color-toggle checked" data-color="orange">
-            <input type="checkbox" value="orange" checked>
+          <label class="color-toggle" data-color="orange">
+            <input type="checkbox" value="orange">
             <span class="color-dot"></span>
             <span>Orange</span>
           </label>
-          <label class="color-toggle checked" data-color="blue">
-            <input type="checkbox" value="blue" checked>
+          <label class="color-toggle" data-color="blue">
+            <input type="checkbox" value="blue">
             <span class="color-dot"></span>
             <span>Blue</span>
           </label>
-          <label class="color-toggle checked" data-color="medical">
-            <input type="checkbox" value="medical" checked>
+          <label class="color-toggle" data-color="medical">
+            <input type="checkbox" value="medical">
             <span class="color-dot"></span>
             <span>Medical</span>
           </label>
         </div>
+        <small class="field-error" id="color-error" role="alert"></small>
       </fieldset>
 
       <button class="run-btn" id="run-check-btn" type="submit">Run Check</button>
@@ -878,6 +884,8 @@
     const periodSelect = document.getElementById('period-select');
     const incidentTypeSelect = document.getElementById('incident-type-select');
     const colorToggles = Array.from(document.querySelectorAll('.color-toggle'));
+    const colorControls = document.querySelector('.color-controls');
+    const colorErrorEl = document.getElementById('color-error');
     const radiusButtons = Array.from(document.querySelectorAll('.radius-option'));
     const customRadiusInput = document.getElementById('custom-radius');
     const statusEl = document.getElementById('map-status');
@@ -897,7 +905,7 @@
     let radiusMiles = 1;
     let optionsAbort = null;
     let analysisAbort = null;
-    const STRICT_ADDRESS_RE = /^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},\s*[A-Za-z .'-]{2,},\s*(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$/i;
+    const STRICT_ADDRESS_RE = /^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},?\s+[A-Za-z .'-]{2,},?\s+(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$/i;
 
     const map = L.map('report-map', {
       zoomControl: false,
@@ -999,7 +1007,7 @@
         .map(label => label.querySelector('input'))
         .filter(input => input && input.checked)
         .map(input => input.value);
-      return colors.length ? colors : ['red', 'orange', 'blue', 'medical'];
+      return colors;
     }
 
     function syncColorToggles() {
@@ -1007,6 +1015,12 @@
         const input = label.querySelector('input');
         label.classList.toggle('checked', Boolean(input?.checked));
       });
+    }
+
+    function setColorError(message = '') {
+      const hasError = Boolean(message);
+      colorControls?.classList.toggle('invalid', hasError);
+      if (colorErrorEl) colorErrorEl.textContent = message;
     }
 
     function setRadius(value) {
@@ -1239,6 +1253,14 @@
         return;
       }
       setAddressError('');
+      const colors = selectedColors();
+      if (!colors.length) {
+        const colorMessage = 'Select at least one report color.';
+        setColorError(colorMessage);
+        setStatus(colorMessage, 'error');
+        return;
+      }
+      setColorError('');
 
       setStatus('Checking cached incidents around that address...', 'loading');
       if (runButton) {
@@ -1250,7 +1272,7 @@
         radius_miles: String(radiusMiles),
         source: sourceSelect.value || 'caddo',
         month: periodSelect.value || 'all',
-        colors: selectedColors().join(','),
+        colors: colors.join(','),
         incident_type: incidentTypeSelect.value || 'all'
       });
 
@@ -1311,6 +1333,7 @@
       const input = label.querySelector('input');
       input?.addEventListener('change', () => {
         syncColorToggles();
+        if (selectedColors().length) setColorError('');
         loadOptions();
         markAnalysisStale();
       });

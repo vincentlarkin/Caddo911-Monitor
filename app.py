@@ -1936,10 +1936,10 @@ def _build_monthly_report(
 REPORT_MAP_COLOR_ORDER = ['red', 'orange', 'blue', 'medical']
 REPORT_MAP_ADDRESS_FORMAT_MESSAGE = 'Use format: 1234 Market St, Shreveport, LA 71101.'
 REPORT_MAP_ADDRESS_RE = re.compile(
-    r"^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},\s*[A-Za-z .'-]{2,},\s*(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$",
+    r"^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},?\s+[A-Za-z .'-]{2,},?\s+(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$",
     re.IGNORECASE,
 )
-REPORT_MAP_SCORE_SAMPLE_LIMIT = int(os.environ.get('CADDO911_REPORT_SCORE_SAMPLE_LIMIT', '1200'))
+REPORT_MAP_EXACT_SCORE_LIMIT = int(os.environ.get('CADDO911_REPORT_EXACT_SCORE_LIMIT', '50000'))
 _report_geocode_cache: dict[tuple[str, str], dict | None] = {}
 
 REPORT_MAP_COLOR_META = {
@@ -2028,14 +2028,12 @@ def _incident_report_color(incident: dict) -> str:
 
 
 def _parse_report_colors(raw_value: str | None) -> list[str]:
-    if not raw_value:
-        return list(REPORT_MAP_COLOR_ORDER)
     colors: list[str] = []
-    for part in raw_value.split(','):
+    for part in (raw_value or '').split(','):
         color = part.strip().lower()
         if color in REPORT_MAP_COLOR_META and color not in colors:
             colors.append(color)
-    return colors or list(REPORT_MAP_COLOR_ORDER)
+    return colors
 
 
 def _normalize_report_map_month(value: str | None) -> str | None:
@@ -2217,14 +2215,14 @@ def _distance_miles_to_incident(target_lat: float, target_lon: float, incident: 
     return _haversine_m(target_lat, target_lon, float(incident['_lat']), float(incident['_lon'])) / 1609.344
 
 
-def _sample_anchor_points(incidents: list[dict], *, limit: int | None = None) -> list[dict]:
-    effective_limit = max(1, int(limit if limit is not None else REPORT_MAP_SCORE_SAMPLE_LIMIT))
+def _sample_anchor_points(incidents: list[dict], *, limit: int | None = None) -> tuple[list[dict], bool]:
+    effective_limit = max(1, int(limit if limit is not None else REPORT_MAP_EXACT_SCORE_LIMIT))
     if len(incidents) <= effective_limit:
-        return incidents
+        return incidents, False
     if effective_limit <= 1:
-        return incidents[:1]
-    # Order by a coarse geographic key before sampling so peer anchors are spread
-    # across the map instead of only across insertion/history order.
+        return incidents[:1], True
+    # Extreme data sizes are geographically sampled. Normal selected-color
+    # periods use every selected incident as a peer anchor.
     geo_sorted = sorted(
         incidents,
         key=lambda incident: (
@@ -2234,7 +2232,28 @@ def _sample_anchor_points(incidents: list[dict], *, limit: int | None = None) ->
         ),
     )
     step = (len(geo_sorted) - 1) / (effective_limit - 1)
-    return [geo_sorted[int(round(idx * step))] for idx in range(effective_limit)]
+    return [geo_sorted[int(round(idx * step))] for idx in range(effective_limit)], True
+
+
+def _report_metric_empty(label: str, count: int, total: int, expected_by_area: float, ratio_to_area: float | None) -> dict:
+    ratio_to_peer = None if count == 0 else float(count)
+    percentile = None
+    return {
+        'label': label,
+        'count': count,
+        'totalInPeriod': total,
+        'expectedByArea': round(expected_by_area, 2),
+        'peerAverage': 0.0,
+        'aboveAveragePoints': float(count),
+        'ratioToArea': round(ratio_to_area, 2) if ratio_to_area is not None else None,
+        'ratioToPeer': ratio_to_peer,
+        'percentile': percentile,
+        'peerSampleSize': 0,
+        'peerPopulationSize': 0,
+        'peerSampled': False,
+        'score': _map_score_value(count, ratio_to_peer, percentile),
+        'verdict': _map_score_label(count, ratio_to_peer, percentile),
+    }
 
 
 def _report_spatial_cell_size(radius_miles: float) -> float:
@@ -2323,7 +2342,10 @@ def _build_report_map_metric(
     expected_by_area = total * min(circle_area / max(source_area_sq_miles, 1.0), 1.0)
     ratio_to_area = (count / expected_by_area) if expected_by_area > 0 else None
 
-    sampled_anchors = _sample_anchor_points(anchor_incidents)
+    sampled_anchors, peer_sampled = _sample_anchor_points(anchor_incidents)
+    if not sampled_anchors:
+        return _report_metric_empty(label, count, total, expected_by_area, ratio_to_area)
+
     cell_size = _report_spatial_cell_size(radius_miles)
     spatial_index = _build_report_spatial_index(period_incidents, cell_size)
     peer_counts = [
@@ -2358,6 +2380,8 @@ def _build_report_map_metric(
         'ratioToPeer': round(ratio_to_peer, 2) if ratio_to_peer is not None else None,
         'percentile': round(percentile, 4) if percentile is not None else None,
         'peerSampleSize': len(sampled_anchors),
+        'peerPopulationSize': len(anchor_incidents),
+        'peerSampled': peer_sampled,
         'score': score,
         'verdict': verdict,
     }
@@ -2733,6 +2757,8 @@ def get_map_report_options():
         return jsonify({'error': 'month must be all, this_year, or YYYY-MM'}), 400
 
     colors = _parse_report_colors(request.args.get('colors'))
+    if not colors:
+        colors = list(REPORT_MAP_COLOR_ORDER)
     excluded = _normalize_report_excluded_descriptions()
     months = _available_report_months(source_filter, excluded_descriptions=excluded)
     incidents = _load_report_period_incidents(
@@ -2784,6 +2810,8 @@ def get_map_report():
         return jsonify({'error': 'radius_miles must be a number between 0.25 and 25'}), 400
 
     colors = _parse_report_colors(request.args.get('colors'))
+    if not colors:
+        return jsonify({'error': 'Select at least one report color before running the map report.'}), 400
     incident_type_raw = _clean_ws(request.args.get('incident_type') or '')
     incident_type = incident_type_raw if incident_type_raw and incident_type_raw.lower() != 'all' else None
 
@@ -2848,7 +2876,7 @@ def get_map_report():
         incident_type or 'Selected colors',
         selected_period,
         selected_in_radius,
-        mappable,
+        selected_period,
         radius_miles=radius_miles,
         source_area_sq_miles=source_area,
     )
@@ -2861,7 +2889,7 @@ def get_map_report():
             REPORT_MAP_COLOR_META[color]['label'],
             period_rows,
             radius_rows,
-            mappable,
+            period_rows,
             radius_miles=radius_miles,
             source_area_sq_miles=source_area,
         )
