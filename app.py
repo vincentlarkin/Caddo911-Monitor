@@ -1934,6 +1934,13 @@ def _build_monthly_report(
 
 
 REPORT_MAP_COLOR_ORDER = ['red', 'orange', 'blue', 'medical']
+REPORT_MAP_ADDRESS_FORMAT_MESSAGE = 'Use format: 1234 Market St, Shreveport, LA 71101.'
+REPORT_MAP_ADDRESS_RE = re.compile(
+    r"^\s*\d{1,6}[A-Za-z]?\s+[A-Za-z0-9 .#'/-]{2,},\s*[A-Za-z .'-]{2,},\s*(?:LA|Louisiana)\s+\d{5}(?:-\d{4})?\s*$",
+    re.IGNORECASE,
+)
+REPORT_MAP_SCORE_SAMPLE_LIMIT = int(os.environ.get('CADDO911_REPORT_SCORE_SAMPLE_LIMIT', '1200'))
+_report_geocode_cache: dict[tuple[str, str], dict | None] = {}
 
 REPORT_MAP_COLOR_META = {
     'red': {
@@ -2089,6 +2096,17 @@ def _report_period_label(month: str) -> str:
         return month
 
 
+def _validate_report_address(address: str) -> str | None:
+    address = _clean_ws(address)
+    if not address:
+        return 'Address is required. ' + REPORT_MAP_ADDRESS_FORMAT_MESSAGE
+    if len(address) > 140:
+        return 'Address is too long. ' + REPORT_MAP_ADDRESS_FORMAT_MESSAGE
+    if not REPORT_MAP_ADDRESS_RE.match(address):
+        return 'Invalid address. ' + REPORT_MAP_ADDRESS_FORMAT_MESSAGE
+    return None
+
+
 def _source_area_sq_miles(source_filter: str) -> float:
     if source_filter == 'all':
         return sum(float(profile.get('area_sq_miles') or 0) for profile in SOURCE_GEO_PROFILES.values())
@@ -2104,53 +2122,54 @@ def _point_in_report_source_scope(lat: float, lon: float, source_filter: str) ->
 
 def _geocode_report_address(address: str, source_filter: str) -> dict | None:
     address = _clean_ws(address)
-    if not address:
+    if _validate_report_address(address):
         return None
+
+    cache_key = (source_filter, address.lower())
+    if cache_key in _report_geocode_cache:
+        return _report_geocode_cache[cache_key]
+    if len(_report_geocode_cache) > 512:
+        _report_geocode_cache.pop(next(iter(_report_geocode_cache)), None)
 
     source_names = list(SOURCE_GEO_PROFILES.keys()) if source_filter == 'all' else [source_filter]
     queries: list[str] = []
     for source_name in source_names:
         profile = SOURCE_GEO_PROFILES.get(source_name) or SOURCE_GEO_PROFILES['caddo']
         default_city = _clean_ws(profile.get('default_city') or '')
-        county = _clean_ws(profile.get('county') or '')
         for query in (
             address,
             f"{address}, {default_city}, LA" if default_city else '',
-            f"{address}, {county}, LA" if county else '',
-            f"{address}, Louisiana",
         ):
             query = _clean_ws(query)
             if query and query.lower() not in {q.lower() for q in queries}:
                 queries.append(query)
 
     best_out_of_scope: dict | None = None
-    for provider_name, geocoder in (('arcgis', geolocator_arcgis), ('osm', geolocator_osm)):
-        for query in queries:
-            try:
-                if provider_name == 'osm':
-                    location = geocoder.geocode(query, country_codes='us', exactly_one=True, timeout=4)
-                else:
-                    location = geocoder.geocode(query, timeout=4)
-            except Exception:
-                continue
-            if not location:
-                continue
+    for query in queries[:3]:
+        try:
+            location = geolocator_arcgis.geocode(query, timeout=2)
+        except Exception:
+            continue
+        if not location:
+            continue
 
-            lat = float(location.latitude)
-            lon = float(location.longitude)
-            result = {
-                'latitude': round(lat, 6),
-                'longitude': round(lon, 6),
-                'label': getattr(location, 'address', None) or query,
-                'query': query,
-                'geocodeSource': provider_name,
-                'inSourceBounds': _point_in_report_source_scope(lat, lon, source_filter),
-            }
-            if result['inSourceBounds']:
-                return result
-            if best_out_of_scope is None:
-                best_out_of_scope = result
+        lat = float(location.latitude)
+        lon = float(location.longitude)
+        result = {
+            'latitude': round(lat, 6),
+            'longitude': round(lon, 6),
+            'label': getattr(location, 'address', None) or query,
+            'query': query,
+            'geocodeSource': 'arcgis',
+            'inSourceBounds': _point_in_report_source_scope(lat, lon, source_filter),
+        }
+        if result['inSourceBounds']:
+            _report_geocode_cache[cache_key] = result
+            return result
+        if best_out_of_scope is None:
+            best_out_of_scope = result
 
+    _report_geocode_cache[cache_key] = best_out_of_scope
     return best_out_of_scope
 
 
@@ -2198,18 +2217,68 @@ def _distance_miles_to_incident(target_lat: float, target_lon: float, incident: 
     return _haversine_m(target_lat, target_lon, float(incident['_lat']), float(incident['_lon'])) / 1609.344
 
 
-def _sample_anchor_points(incidents: list[dict], *, limit: int = 450) -> list[dict]:
-    if len(incidents) <= limit:
+def _sample_anchor_points(incidents: list[dict], *, limit: int | None = None) -> list[dict]:
+    effective_limit = max(1, int(limit if limit is not None else REPORT_MAP_SCORE_SAMPLE_LIMIT))
+    if len(incidents) <= effective_limit:
         return incidents
-    if limit <= 1:
+    if effective_limit <= 1:
         return incidents[:1]
-    step = (len(incidents) - 1) / (limit - 1)
-    return [incidents[int(round(idx * step))] for idx in range(limit)]
+    # Order by a coarse geographic key before sampling so peer anchors are spread
+    # across the map instead of only across insertion/history order.
+    geo_sorted = sorted(
+        incidents,
+        key=lambda incident: (
+            round(float(incident['_lat']), 3),
+            round(float(incident['_lon']), 3),
+            str(incident.get('first_seen') or ''),
+        ),
+    )
+    step = (len(geo_sorted) - 1) / (effective_limit - 1)
+    return [geo_sorted[int(round(idx * step))] for idx in range(effective_limit)]
 
 
-def _count_incidents_near(lat: float, lon: float, incidents: list[dict], radius_m: float) -> int:
-    count = 0
+def _report_spatial_cell_size(radius_miles: float) -> float:
+    # Roughly half the radius in latitude degrees, bounded so tiny radii still
+    # keep cell counts low and larger custom radii do not create huge neighbor scans.
+    return max(0.003, min(0.03, float(radius_miles) / 138.0))
+
+
+def _build_report_spatial_index(incidents: list[dict], cell_size: float) -> dict[tuple[int, int], list[dict]]:
+    index: dict[tuple[int, int], list[dict]] = {}
     for incident in incidents:
+        cell = (
+            math.floor(float(incident['_lat']) / cell_size),
+            math.floor(float(incident['_lon']) / cell_size),
+        )
+        index.setdefault(cell, []).append(incident)
+    return index
+
+
+def _count_incidents_near(
+    lat: float,
+    lon: float,
+    incidents: list[dict],
+    radius_m: float,
+    *,
+    spatial_index: dict[tuple[int, int], list[dict]] | None = None,
+    cell_size: float | None = None,
+) -> int:
+    candidates = incidents
+    if spatial_index is not None and cell_size:
+        radius_miles = radius_m / 1609.344
+        lat_range = max(1, math.ceil((radius_miles / 69.0) / cell_size) + 1)
+        cos_lat = max(0.2, abs(math.cos(math.radians(lat))))
+        lon_range = max(1, math.ceil((radius_miles / (69.0 * cos_lat)) / cell_size) + 1)
+        base_lat_cell = math.floor(lat / cell_size)
+        base_lon_cell = math.floor(lon / cell_size)
+        nearby: list[dict] = []
+        for lat_cell in range(base_lat_cell - lat_range, base_lat_cell + lat_range + 1):
+            for lon_cell in range(base_lon_cell - lon_range, base_lon_cell + lon_range + 1):
+                nearby.extend(spatial_index.get((lat_cell, lon_cell), []))
+        candidates = nearby
+
+    count = 0
+    for incident in candidates:
         if _haversine_m(lat, lon, float(incident['_lat']), float(incident['_lon'])) <= radius_m:
             count += 1
     return count
@@ -2255,8 +2324,17 @@ def _build_report_map_metric(
     ratio_to_area = (count / expected_by_area) if expected_by_area > 0 else None
 
     sampled_anchors = _sample_anchor_points(anchor_incidents)
+    cell_size = _report_spatial_cell_size(radius_miles)
+    spatial_index = _build_report_spatial_index(period_incidents, cell_size)
     peer_counts = [
-        _count_incidents_near(float(anchor['_lat']), float(anchor['_lon']), period_incidents, radius_m)
+        _count_incidents_near(
+            float(anchor['_lat']),
+            float(anchor['_lon']),
+            period_incidents,
+            radius_m,
+            spatial_index=spatial_index,
+            cell_size=cell_size,
+        )
         for anchor in sampled_anchors
     ]
     peer_average = (sum(peer_counts) / len(peer_counts)) if peer_counts else 0.0
@@ -2279,6 +2357,7 @@ def _build_report_map_metric(
         'ratioToArea': round(ratio_to_area, 2) if ratio_to_area is not None else None,
         'ratioToPeer': round(ratio_to_peer, 2) if ratio_to_peer is not None else None,
         'percentile': round(percentile, 4) if percentile is not None else None,
+        'peerSampleSize': len(sampled_anchors),
         'score': score,
         'verdict': verdict,
     }
@@ -2722,12 +2801,17 @@ def get_map_report():
             'inSourceBounds': _point_in_report_source_scope(float(target_lat), float(target_lon), source_filter),
         }
     elif address:
+        address_error = _validate_report_address(address)
+        if address_error:
+            return jsonify({'error': address_error}), 400
         target = _geocode_report_address(address, source_filter)
     else:
-        return jsonify({'error': 'address or lat/lng is required'}), 400
+        return jsonify({'error': 'Address is required. ' + REPORT_MAP_ADDRESS_FORMAT_MESSAGE}), 400
 
     if not target:
-        return jsonify({'error': 'address could not be geocoded'}), 404
+        return jsonify({'error': 'Address could not be verified. ' + REPORT_MAP_ADDRESS_FORMAT_MESSAGE}), 404
+    if not target.get('inSourceBounds'):
+        return jsonify({'error': 'Address is outside the selected source area. Check Source or enter a local Louisiana address.'}), 400
 
     target_lat = float(target['latitude'])
     target_lon = float(target['longitude'])
@@ -2789,7 +2873,6 @@ def get_map_report():
         })
 
     top_types = _report_incident_type_counts(selected_in_radius, REPORT_MAP_COLOR_ORDER)[:12]
-    available_types = _report_incident_type_counts(mappable, colors)[:250]
     selected_in_radius.sort(key=lambda incident: (float(incident.get('_distanceMiles') or 0), incident.get('first_seen') or ''))
 
     summary = (
@@ -2816,8 +2899,7 @@ def get_map_report():
         'summary': summary,
         'colorMetrics': color_metrics,
         'topIncidentTypes': top_types,
-        'incidentTypes': available_types,
-        'incidents': [_serialize_map_report_incident(incident) for incident in selected_in_radius[:500]],
+        'incidents': [_serialize_map_report_incident(incident) for incident in selected_in_radius[:200]],
         'excludedDescriptions': sorted(excluded),
     })
 
