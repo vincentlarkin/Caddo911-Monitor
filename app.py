@@ -592,7 +592,6 @@ AUTH_PASS = os.environ.get('CADDO911_AUTH_PASS')
 # infrastructure or dependencies.
 REPORT_PAGE_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_PAGE_RATE_LIMIT', '120'))
 REPORT_API_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_API_RATE_LIMIT', '90'))
-REPORT_MAP_RATE_LIMIT = int(os.environ.get('CADDO911_REPORT_MAP_RATE_LIMIT', '25'))
 REPORT_RATE_WINDOW_SECONDS = int(os.environ.get('CADDO911_REPORT_RATE_WINDOW_SECONDS', '60'))
 _report_rate_lock = Lock()
 _report_rate_hits: dict[tuple[str, str], list[float]] = {}
@@ -626,8 +625,6 @@ def _client_ip_for_rate_limit() -> str:
 
 def _report_rate_bucket(path: str) -> tuple[str, int] | None:
     clean_path = path.rstrip('/') or '/'
-    if clean_path == '/api/reports/map':
-        return 'report-map', REPORT_MAP_RATE_LIMIT
     if clean_path.startswith('/api/reports/'):
         return 'report-api', REPORT_API_RATE_LIMIT
     if clean_path == '/reports' or clean_path.startswith('/reports/'):
@@ -2505,11 +2502,6 @@ def reports():
 def monthly_reports():
     return send_from_directory('public', 'monthly-reports.html')
 
-@app.route('/reports/map')
-@app.route('/reports/map/')
-def map_reports():
-    return send_from_directory('public', 'map-report.html')
-
 @app.route('/healthz')
 def healthz():
     return jsonify({'ok': True})
@@ -2832,7 +2824,6 @@ def get_available_report_months():
     })
 
 
-@app.route('/api/reports/map/options')
 def get_map_report_options():
     source_filter = _normalize_source_filter(request.args.get('source'))
     month = _normalize_report_map_month(request.args.get('month'))
@@ -2874,7 +2865,6 @@ def get_map_report_options():
     })
 
 
-@app.route('/api/reports/map')
 def get_map_report():
     report_started_at = time.perf_counter()
     source_filter = _normalize_source_filter(request.args.get('source'))

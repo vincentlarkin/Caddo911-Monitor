@@ -21,7 +21,6 @@
       --red: #ff5d5d;
       --amber: #ffbe55;
       --blue: #5ea2ff;
-      --green: #3de6a3;
       --shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
     }
 
@@ -112,8 +111,9 @@
 
     .choice-grid {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
+      max-width: 620px;
     }
 
     .report-choice {
@@ -141,10 +141,6 @@
       height: 4px;
       background: linear-gradient(90deg, var(--red), var(--amber), var(--blue));
       opacity: 0.88;
-    }
-
-    .report-choice.map::before {
-      background: linear-gradient(90deg, var(--blue), var(--green), var(--red));
     }
 
     .choice-icon {
@@ -238,7 +234,7 @@
       <div class="hero-copy">
         <p class="eyebrow">Caddo 911 Analytics</p>
         <h1>Reports</h1>
-        <p>Choose the monthly rollup, or run a radius map check against the cached incident history.</p>
+        <p>Open the monthly rollup for cached incident history and hotspot summaries.</p>
       </div>
       <div class="hero-actions">
         <a class="hero-link" href="/">Back to Live Map</a>
@@ -261,23 +257,6 @@
         </div>
         <div class="choice-footer">
           <span>Open monthly report</span>
-          <span>-></span>
-        </div>
-      </a>
-
-      <a class="report-choice map" href="/reports/map">
-        <div class="choice-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18 3 21V6l6-3 6 3 6-3v15l-6 3-6-3Z"/>
-            <path d="M9 3v15M15 6v15"/>
-          </svg>
-        </div>
-        <div class="choice-copy">
-          <h2>Map</h2>
-          <p>Enter an address, pick a 2-5 mile radius, filter report colors, and compare the area against historical averages.</p>
-        </div>
-        <div class="choice-footer">
-          <span>Open radius map</span>
           <span>-></span>
         </div>
       </a>

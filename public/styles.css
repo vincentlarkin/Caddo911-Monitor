@@ -137,6 +137,45 @@
       color: var(--red);
       animation: none;
     }
+
+    .status-item.status-view {
+      align-items: stretch;
+    }
+
+    .view-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(10, 10, 15, 0.65);
+    }
+
+    .view-switch-btn {
+      min-width: 54px;
+      height: 28px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.14s ease, color 0.14s ease;
+    }
+
+    .view-switch-btn:hover {
+      color: var(--text);
+    }
+
+    .view-switch-btn.active {
+      color: var(--text);
+      background: rgba(255, 59, 59, 0.18);
+      box-shadow: 0 0 0 1px rgba(255, 59, 59, 0.3) inset;
+    }
     
     .map-theme-toggle,
     .location-btn {
@@ -218,10 +257,18 @@
       height: calc(100vh - var(--header-height));
       min-height: 0;
     }
+
+    body.list-view .main-container {
+      grid-template-columns: minmax(0, 1fr);
+    }
     
     .map-container {
       position: relative;
       background: var(--bg-panel);
+    }
+
+    body.list-view .map-container {
+      display: none;
     }
     
     #map {
@@ -397,6 +444,11 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+    }
+
+    body.list-view .sidebar {
+      border-left: none;
+      border-top: 1px solid var(--border);
     }
 
     /* Ensure the sidebar panels become real flex columns so lists can scroll */
@@ -710,6 +762,85 @@
       font-size: 10px;
       color: var(--text-dim);
     }
+
+    @media (min-width: 721px) {
+      body.list-view .tabs {
+        max-width: 760px;
+        width: 100%;
+        margin: 0 auto;
+      }
+
+      body.list-view .source-tabs,
+      body.list-view .filter-bar,
+      body.list-view #live-panel,
+      body.list-view #history-panel {
+        width: min(100%, 1180px);
+        margin: 0 auto;
+      }
+
+      body.list-view .filter-bar {
+        border-left: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+      }
+
+      body.list-view .incident-list {
+        padding: 12px;
+      }
+
+      body.list-view .source-group {
+        margin-bottom: 16px;
+      }
+
+      body.list-view .source-group-header {
+        margin-bottom: 8px;
+      }
+
+      body.list-view .incident-card {
+        display: grid;
+        grid-template-columns: minmax(220px, 1.15fr) 86px minmax(240px, 1fr) minmax(220px, 0.95fr);
+        gap: 12px;
+        align-items: center;
+        min-height: 54px;
+        margin-bottom: 6px;
+        padding: 9px 12px 9px 18px;
+        border-radius: 8px;
+      }
+
+      body.list-view .incident-header {
+        display: contents;
+      }
+
+      body.list-view .incident-type,
+      body.list-view .incident-location,
+      body.list-view .incident-units {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      body.list-view .incident-type {
+        font-size: 12px;
+      }
+
+      body.list-view .incident-time {
+        justify-self: start;
+      }
+
+      body.list-view .incident-location {
+        margin: 0;
+      }
+
+      body.list-view .incident-meta {
+        gap: 10px;
+        justify-content: flex-start;
+        min-width: 0;
+      }
+
+      body.list-view .incident-agency {
+        flex: 0 0 auto;
+      }
+    }
     
     .filter-bar {
       display: flex;
@@ -965,54 +1096,6 @@
     .sort-control {
       position: relative;
       width: 100%;
-    }
-
-    .agency-bank-controls {
-      display: inline-flex;
-      gap: 6px;
-      width: 100%;
-      margin-bottom: 4px;
-      padding: 2px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.09);
-    }
-
-    .agency-bank-controls.hidden {
-      display: none !important;
-    }
-
-    .agency-bank-btn {
-      flex: 1;
-      border: 1px solid rgba(255, 255, 255, 0.14);
-      background: rgba(255, 255, 255, 0.03);
-      color: var(--text-dim);
-      border-radius: 8px;
-      padding: 7px 10px;
-      font-size: 10px;
-      font-weight: 600;
-      min-height: 32px;
-      letter-spacing: 0.4px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .agency-bank-btn:hover {
-      color: var(--text);
-      border-color: rgba(255, 255, 255, 0.32);
-    }
-
-    .agency-bank-btn.active {
-      color: var(--text);
-      border-color: rgba(59, 139, 255, 0.6);
-      background: rgba(59, 139, 255, 0.22);
-      box-shadow: 0 0 14px rgba(59, 139, 255, 0.22);
-    }
-
-    .agency-bank-btn:focus-visible {
-      outline: none;
-      border-color: rgba(255, 255, 255, 0.55);
-      box-shadow: 0 0 0 2px rgba(59, 139, 255, 0.22);
     }
 
     .agency-group {
@@ -2546,6 +2629,46 @@
         border-bottom: none;
       }
 
+      body.list-view .map-container {
+        display: none;
+      }
+
+      body.list-view .sidebar {
+        position: relative;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        height: 100%;
+        max-height: none;
+        border-radius: 0;
+        box-shadow: none;
+        z-index: auto;
+        transition: none;
+      }
+
+      body.list-view .sidebar.collapsed {
+        height: 100%;
+      }
+
+      body.list-view .sidebar.collapsed .filter-bar,
+      body.list-view .sidebar.collapsed .source-tabs,
+      body.list-view .sidebar.collapsed #live-panel,
+      body.list-view .sidebar.collapsed #history-panel:not(.hidden) {
+        display: flex;
+      }
+
+      body.list-view .sidebar.collapsed .history-controls {
+        display: block;
+      }
+
+      body.list-view .sidebar.collapsed .tabs {
+        border-bottom: 1px solid var(--border);
+      }
+
+      body.list-view .panel-toggle {
+        display: none;
+      }
+
       .header {
         padding: 14px 16px 10px;
         flex-direction: column;
@@ -2672,19 +2795,6 @@
       .filter-bar {
         gap: 6px;
         padding: 6px 6px;
-      }
-
-      .agency-bank-controls {
-        margin-bottom: 3px;
-        gap: 4px;
-        padding: 2px;
-      }
-
-      .agency-bank-btn {
-        min-height: 30px;
-        padding: 6px 8px;
-        font-size: 9px;
-        letter-spacing: 0.2px;
       }
 
       .filter-logo {

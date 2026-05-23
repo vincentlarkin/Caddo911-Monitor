@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.2.92LAbeta" />
+  <link rel="stylesheet" href="styles.css?v=3.2.93LAbeta" />
 </head>
 <body>
   <header class="header">
@@ -45,6 +45,13 @@
       <div class="status-item status-active">
         <span class="status-label">Active</span>
         <span class="status-value" id="active-count">0</span>
+      </div>
+      <div class="status-item status-view">
+        <span class="status-label">View</span>
+        <div class="view-switch" role="group" aria-label="View mode">
+          <button class="view-switch-btn active" type="button" data-view-mode="map" aria-pressed="true">Map</button>
+          <button class="view-switch-btn" type="button" data-view-mode="list" aria-pressed="false">List</button>
+        </div>
       </div>
       <div class="status-item status-theme">
         <span class="status-label">Map Theme</span>
@@ -141,7 +148,7 @@
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v3.2.92LAbeta</p>
+        <p class="info-version">v3.2.93LAbeta</p>
       </div>
     </div>
   </div>
@@ -230,14 +237,8 @@
       <!-- Shared filters (apply to Live + History lists) -->
       <div class="filter-bar">
         <div class="filter-rows">
-          <div class="agency-bank-controls hidden" id="agency-bank-controls">
-            <button type="button" class="agency-bank-btn active" data-agency-view="caddo">Caddo Units</button>
-            <button type="button" class="agency-bank-btn" data-agency-view="batonrouge">Baton Rouge Units</button>
-            <button type="button" class="agency-bank-btn" data-agency-view="lafayette">Lafayette Units</button>
-          </div>
-
           <!-- Caddo unit filters -->
-          <div class="filter-group agency-group agency-group-caddo" data-filter-type="agency-caddo">
+          <div class="filter-group agency-group agency-group-caddo hidden" data-filter-type="agency-caddo">
             <button class="filter-btn active" data-filter="all" title="All Caddo units">All</button>
             <button class="filter-btn" data-filter="cadfd" title="Caddo Fire/EMS">
               <img src="images/cfd-fire.png" alt="CAD-FD/EMS" class="filter-logo">
@@ -763,11 +764,11 @@
     let currentSource = 'all'; // 'all' | 'caddo' | 'batonrouge' | 'lafayette'
     let currentLafayetteUnit = 'all'; // 'all' | 'police' | 'sheriff' | 'fire'
     let currentBatonRougeAgency = 'all'; // 'all' | 'law' | 'oss'
-    let agencyButtonView = 'caddo'; // which button bank is currently visible
     let currentFilter = 'all';  // Agency filter
     let currentUrgencyFilter = 'all';  // Urgency/severity filter
     let currentSort = 'recent'; // 'recent' | 'urgency'
     let mapMode = 'live'; // 'live' | 'history'
+    let viewMode = localStorage.getItem('caddo911ViewMode') === 'list' ? 'list' : 'map';
     let historyPage = 1;
     const historyPageSize = 35;
     let historyTotal = 0;
@@ -931,6 +932,7 @@
     }
 
     function focusMapOnSourceSelection(source) {
+      if (viewMode === 'list') return;
       const key = String(source || 'all').toLowerCase();
       const view = SOURCE_MAP_VIEWS[key] || SOURCE_MAP_VIEWS.all;
       map.flyTo(view.center, view.zoom, { duration: 0.45 });
@@ -1052,6 +1054,7 @@
     }
 
     function matchesActiveUnitFilters(incident) {
+      if (currentSource === 'all') return true;
       const source = normalizeSource(incident?.source);
       if (source === 'lafayette') return matchesLafayetteUnitFilter(incident, currentLafayetteUnit);
       if (source === 'batonrouge') return matchesBatonRougeAgencyFilter(incident, currentBatonRougeAgency);
@@ -1064,14 +1067,12 @@
       return normalizeSource(incident?.source) === selectedSource;
     }
 
-    // Combined filter - checks agency + urgency + Lafayette unit.
+    // Combined filter - checks source, visible unit filters, and urgency.
     function matchesFilters(incident, agencyFilter, urgencyFilter) {
       return (
         matchesSourceFilter(incident) &&
-        matchesAgencyFilter(incident, agencyFilter) &&
-        matchesBatonRougeAgencyFilter(incident) &&
-        matchesUrgencyFilter(incident, urgencyFilter) &&
-        matchesLafayetteUnitFilter(incident)
+        matchesActiveUnitFilters(incident) &&
+        matchesUrgencyFilter(incident, urgencyFilter)
       );
     }
     
@@ -1101,19 +1102,17 @@
       if (currentSource === 'lafayette') return currentLafayetteUnit;
       if (currentSource === 'batonrouge') return currentBatonRougeAgency;
       if (currentSource === 'caddo') return currentFilter;
-      // In "All", mirror whichever unit bank is currently visible.
-      if (agencyButtonView === 'batonrouge') return currentBatonRougeAgency;
-      return agencyButtonView === 'lafayette' ? currentLafayetteUnit : currentFilter;
+      return 'all';
     }
 
     function currentUnitFilterLabelForUi() {
       const value = currentUnitFilterValueForUi();
-      if (agencyButtonView === 'batonrouge' || currentSource === 'batonrouge') {
+      if (currentSource === 'batonrouge') {
         if (value === 'law') return 'baton rouge law';
         if (value === 'oss') return 'baton rouge oss';
         return 'baton rouge agencies';
       }
-      if (agencyButtonView === 'lafayette' || currentSource === 'lafayette') {
+      if (currentSource === 'lafayette') {
         if (value === 'police') return 'lafayette police';
         if (value === 'sheriff') return 'lafayette sheriff';
         if (value === 'fire') return 'lafayette fire';
@@ -1597,6 +1596,14 @@
       const nLat = Number(lat);
       const nLng = Number(lng);
       if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) return;
+      if (viewMode === 'list') {
+        setViewMode('map');
+        requestAnimationFrame(() => {
+          map.invalidateSize();
+          smoothFocusOnPoint(nLat, nLng, { targetZoom: 15 });
+        });
+        return;
+      }
       smoothFocusOnPoint(nLat, nLng, { targetZoom: 15 });
     };
     
@@ -2126,6 +2133,7 @@
     }
 
     function focusMapOnCurrentFilteredIncidents() {
+      if (viewMode === 'list') return;
       const livePanel = document.getElementById('live-panel');
       const historyPanel = document.getElementById('history-panel');
       const liveVisible = livePanel && !livePanel.classList.contains('hidden');
@@ -2649,43 +2657,13 @@
       focusMapOnCurrentFilteredIncidents();
     }
 
-    function setAgencyButtonView(view) {
-      const normalized = ['caddo', 'batonrouge', 'lafayette'].includes(view) ? view : 'caddo';
-      agencyButtonView = normalized;
-
+    function syncAgencyFilterGroupsToSource() {
       const caddoGroup = document.querySelector('.agency-group-caddo');
       const batonRougeGroup = document.querySelector('.agency-group-batonrouge');
       const lafayetteGroup = document.querySelector('.agency-group-lafayette');
-      if (caddoGroup) caddoGroup.classList.toggle('hidden', normalized !== 'caddo');
-      if (batonRougeGroup) batonRougeGroup.classList.toggle('hidden', normalized !== 'batonrouge');
-      if (lafayetteGroup) lafayetteGroup.classList.toggle('hidden', normalized !== 'lafayette');
-
-      const controls = document.getElementById('agency-bank-controls');
-      if (controls) {
-        controls.classList.toggle('hidden', currentSource !== 'all');
-      }
-
-      document.querySelectorAll('.agency-bank-btn').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.agencyView === normalized);
-      });
-    }
-
-    function syncAgencyButtonViewToSource() {
-      if (currentSource === 'batonrouge') {
-        setAgencyButtonView('batonrouge');
-        return;
-      }
-      if (currentSource === 'lafayette') {
-        setAgencyButtonView('lafayette');
-        return;
-      }
-      if (currentSource === 'all') {
-        // In "All", keep whichever side the user last picked.
-        setAgencyButtonView(agencyButtonView);
-        return;
-      }
-      // Caddo uses the Caddo unit filter bank.
-      setAgencyButtonView('caddo');
+      if (caddoGroup) caddoGroup.classList.toggle('hidden', currentSource !== 'caddo');
+      if (batonRougeGroup) batonRougeGroup.classList.toggle('hidden', currentSource !== 'batonrouge');
+      if (lafayetteGroup) lafayetteGroup.classList.toggle('hidden', currentSource !== 'lafayette');
     }
 
     function applySourceFilter(source) {
@@ -2704,7 +2682,7 @@
       document.querySelectorAll('.source-tab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.source === currentSource);
       });
-      syncAgencyButtonViewToSource();
+      syncAgencyFilterGroupsToSource();
       focusMapOnSourceSelection(currentSource);
 
       const historyPanel = document.getElementById('history-panel');
@@ -2780,8 +2758,7 @@
       });
     });
 
-    // Sort control + agency bank controls
-    const agencyBankButtons = document.querySelectorAll('.agency-bank-btn');
+    // Sort control
     const sortToggle = document.getElementById('sort-toggle');
     const sortMenu = document.getElementById('sort-menu');
 
@@ -2835,13 +2812,6 @@
       toggleSortMenu(false);
     });
 
-    agencyBankButtons.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (currentSource !== 'all') return;
-        setAgencyButtonView(btn.dataset.agencyView);
-      });
-    });
-
     document.addEventListener('click', (e) => {
       if (!sortMenu?.classList.contains('open')) return;
       if (sortMenu.contains(e.target) || sortToggle?.contains(e.target)) return;
@@ -2851,6 +2821,8 @@
     // Mobile incidents bottom sheet
     const sidebar = document.querySelector('.sidebar');
     const panelToggle = document.getElementById('panel-toggle');
+    const mapContainer = document.querySelector('.map-container');
+    const viewSwitchButtons = Array.from(document.querySelectorAll('[data-view-mode]'));
     const mobileQuery = window.matchMedia('(max-width: 720px)');
     const coarsePointerQuery = window.matchMedia('(hover: none) and (pointer: coarse)');
 
@@ -2869,6 +2841,40 @@
       }
     }
 
+    function setViewMode(mode, { persist = true } = {}) {
+      const next = mode === 'list' ? 'list' : 'map';
+      viewMode = next;
+      document.body.classList.toggle('list-view', next === 'list');
+      mapContainer?.setAttribute('aria-hidden', String(next === 'list'));
+      viewSwitchButtons.forEach((button) => {
+        const active = button.dataset.viewMode === next;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+      });
+      if (persist) {
+        localStorage.setItem('caddo911ViewMode', next);
+      }
+
+      if (next === 'list') {
+        if (mobileQuery.matches) {
+          setMobilePanelOpen(true);
+        } else {
+          sidebar?.classList.remove('collapsed');
+          document.body.classList.remove('mobile-incidents-open');
+        }
+        return;
+      }
+
+      if (mobileQuery.matches) {
+        setMobilePanelOpen(false);
+      } else {
+        document.body.classList.remove('mobile-incidents-open');
+      }
+      requestAnimationFrame(() => {
+        map.invalidateSize();
+      });
+    }
+
     function syncMobilePanel() {
       const isMobile = mobileQuery.matches;
       document.body.classList.toggle('mobile-view', isMobile);
@@ -2885,14 +2891,25 @@
         }
         return;
       }
+      if (viewMode === 'list') {
+        setMobilePanelOpen(true);
+        return;
+      }
       if (!document.body.classList.contains('mobile-incidents-open')) {
         setMobilePanelOpen(false);
       }
     }
 
     panelToggle?.addEventListener('click', () => {
+      if (viewMode === 'list') return;
       const isCollapsed = sidebar?.classList.contains('collapsed');
       setMobilePanelOpen(Boolean(isCollapsed));
+    });
+
+    viewSwitchButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        setViewMode(button.dataset.viewMode);
+      });
     });
 
     mobileQuery.addEventListener('change', syncMobilePanel);
@@ -2912,7 +2929,8 @@
     
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });
-    syncAgencyButtonViewToSource();
+    syncAgencyFilterGroupsToSource();
+    setViewMode(viewMode, { persist: false });
     
     // Polling interval (ms). Keep at least 60s to be gentle.
     let pollIntervalMs = 60000;
