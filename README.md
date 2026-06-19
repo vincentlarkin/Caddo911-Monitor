@@ -18,11 +18,6 @@ Real-time incident tracker for Caddo Parish, Baton Rouge traffic incidents, and 
 - **Geocodes** addresses using source-aware bounds for better placement
 - **Serves** a single-page frontend from `public/` (Leaflet map + filters)
 
-## Requirements
-
-- Python 3.10+
-- Internet connection
-
 ## Installation
 
 ```bash
