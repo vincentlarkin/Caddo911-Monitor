@@ -298,6 +298,43 @@ class GeocodingTests(unittest.TestCase):
         self.assertEqual("street+cross", result["quality"])
         self.assertAlmostEqual(32.902640985745, result["lat"])
 
+    def test_cad_road_discriminator_is_removed_before_geocoding(self):
+        query = (
+            "N MARKET ST & NELSON ST, "
+            "Shreveport, Caddo Parish, LA"
+        )
+        fake = FakeArcGIS({
+            query: [FakeLocation(
+                "N Market St & Nelson St, Shreveport, Louisiana, 71107",
+                32.54413500081,
+                -93.77602202528,
+                address_type="StreetInt",
+                score=100.0,
+                attributes={
+                    "StPreDir1": "N",
+                    "StName1": "Market",
+                    "StType1": "St",
+                    "StName2": "Nelson",
+                    "StType2": "St",
+                    "City": "Shreveport",
+                    "Subregion": "Caddo Parish",
+                },
+            )],
+        })
+        app.geolocator_arcgis = fake
+
+        result = app.geocode_address(
+            "",
+            "N MARKET ST & NELSON ST 1",
+            "SHV",
+            source="caddo",
+        )
+
+        self.assertEqual("intersection-2", result["quality"])
+        self.assertAlmostEqual(32.54413500081, result["lat"])
+        self.assertEqual(query, fake.calls[0][0])
+        self.assertEqual("HWY 1", app._strip_cad_road_discriminator("HWY 1"))
+
     def test_road_matching_respects_conflicting_directions(self):
         self.assertTrue(app._road_name_matches(
             "E BERT KOUNS INDUSTRIAL",

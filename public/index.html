@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/images/caddo911-icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="/images/caddo911-icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest?v=3.2.96LAbeta">
+  <link rel="manifest" href="/manifest.webmanifest?v=3.2.97LAbeta">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.2.96LAbeta" />
+  <link rel="stylesheet" href="styles.css?v=3.2.97LAbeta" />
 </head>
 <body class="map-dark">
   <header class="header">
@@ -143,7 +143,7 @@
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v3.2.96LAbeta</p>
+        <p class="info-version">v3.2.97LAbeta</p>
       </div>
     </div>
   </div>
@@ -1340,8 +1340,17 @@
         .replace(/'/g, '&#39;');
     }
 
+    function cleanLocationDisplayValue(value) {
+      return String(value || '')
+        .replace(/\b(ALY|ALLEY|AV|AVE|AVENUE|BLVD|BOULEVARD|CIR|CIRCLE|CT|COURT|DR|DRIVE|LN|LANE|LOOP|PASSWAY|PKWY|PARKWAY|PL|PLACE|RD|ROAD|ST|STREET|TER|TERRACE|TRL|TRAIL|WAY)\s+\d+\b(?=\s*(?:&|\/|@|$))/gi, '$1')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     function incidentLocationText(incident) {
-      return [incident?.street, incident?.cross_streets].filter(Boolean).join(' @ ') || 'Unknown';
+      const street = cleanLocationDisplayValue(incident?.street);
+      const crossStreets = cleanLocationDisplayValue(incident?.cross_streets);
+      return [street, crossStreets].filter(Boolean).join(' @ ') || 'Unknown';
     }
 
     const MAP_COORDINATE_BOUNDS = {
@@ -1560,9 +1569,8 @@
       const interactiveClass = hasLocation ? ' is-actionable' : '';
       const interactionAttrs = hasLocation
         ? ` role="button" tabindex="0" title="Show this incident on the map" onclick="focusIncident(${coordinates[0]}, ${coordinates[1]})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusIncident(${coordinates[0]}, ${coordinates[1]}); }"`
-        : ' title="Map location unavailable"';
+        : '';
       const locationText = incidentLocationText(incident);
-      const mapStatus = hasLocation ? '' : '<span class="incident-map-status">Map unavailable</span>';
       
       return `
         <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}${interactiveClass}"
@@ -1572,7 +1580,7 @@
             <span class="incident-time">${formatTime(incident.time)}</span>
           </div>
           <div class="incident-location">
-            <span>${escapeHtml(locationText)}</span>${mapStatus}
+            <span>${escapeHtml(locationText)}</span>
           </div>
           <div class="incident-meta">
             <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${escapeHtml(agencyDisplay)}</span>
@@ -2911,7 +2919,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=3.2.96LAbeta', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=3.2.97LAbeta', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);

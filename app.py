@@ -719,9 +719,9 @@ geocode_cache = {}
 geocode_intersection_cache = {}
 
 # Increment whenever stored coordinates need to be reconsidered because the
-# validation/ranking algorithm changed. Version 3 adds verified numbered
-# addresses and tighter source-area validation alongside Caddo street segments.
-GEOCODER_VERSION = 3
+# validation/ranking algorithm changed. Version 4 also removes CAD-only road
+# discriminators such as the trailing "1" in "NELSON ST 1" before matching.
+GEOCODER_VERSION = 4
 ARCGIS_INTERSECTION_MIN_SCORE = 90.0
 ARCGIS_STREET_MIN_SCORE = 85.0
 ARCGIS_ADDRESS_MIN_SCORE = 90.0
@@ -828,6 +828,13 @@ GENERIC_CROSS_TOKENS = {
     "INTERCHANGE ROADWAYS",
     "UNKNOWN",
     "UNKNOWN NAME",
+}
+
+CAD_ROAD_DISAMBIGUATOR_TYPES = {
+    "ALY", "ALLEY", "AV", "AVE", "AVENUE", "BLVD", "BOULEVARD",
+    "CIR", "CIRCLE", "CT", "COURT", "DR", "DRIVE", "LN", "LANE",
+    "LOOP", "PASSWAY", "PKWY", "PARKWAY", "PL", "PLACE", "RD", "ROAD",
+    "ST", "STREET", "TER", "TERRACE", "TRL", "TRAIL", "WAY",
 }
 
 SOURCE_MUNICIPALITY_ALIASES = {
@@ -964,6 +971,19 @@ def _dedupe_keep_order(items: list[str]) -> list[str]:
 def _clean_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
+
+def _strip_cad_road_discriminator(value: str | None) -> str:
+    """Remove CAD duplicate-road suffixes without touching route numbers."""
+    text = _clean_ws(value or "")
+    tokens = text.split()
+    if (
+        len(tokens) >= 3
+        and tokens[-1].isdigit()
+        and tokens[-2].upper() in CAD_ROAD_DISAMBIGUATOR_TYPES
+    ):
+        return " ".join(tokens[:-1])
+    return text
+
 def _normalize_location_token(value: str | None) -> str:
     return _clean_ws(value or "").lower()
 
@@ -997,7 +1017,7 @@ def _split_cross_tokens(text: str | None) -> list[str]:
     parts = [p.strip(" ,") for p in s.split("&")]
     out: list[str] = []
     for p in parts:
-        p = _clean_ws(p)
+        p = _strip_cad_road_discriminator(p)
         if not p:
             continue
         if _is_generic_cross_token(p):
@@ -1011,7 +1031,7 @@ def _extract_street_and_crosses(street: str | None, cross_streets: str | None) -
       "E 70TH @ DIXIE GARDEN DR & E DIXIE MEADOW RD"
     In that case, treat the part before '@' as the main street, and fold the rest into crosses.
     """
-    street_s = _clean_ws(street or "")
+    street_s = _strip_cad_road_discriminator(street)
     cross_s = _clean_ws(cross_streets or "")
 
     extra_cross = ""

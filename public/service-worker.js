@@ -1,4 +1,4 @@
-const CACHE_NAME = 'caddo911-shell-v3.2.96LAbeta';
+const CACHE_NAME = 'caddo911-shell-v3.2.97LAbeta';
 const CORE_ASSETS = [
   new URL('./', self.location).toString(),
   new URL('./index.html', self.location).toString(),
