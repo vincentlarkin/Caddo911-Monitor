@@ -8,9 +8,9 @@
   <meta name="robots" content="index,follow,max-image-preview:large">
   <link rel="canonical" href="https://louisiana911.com/">
   <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="icon" href="/images/caddo911-icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/images/caddo911-icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest?v=4.0.2">
+  <link rel="icon" href="/images/louisiana911-icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest?v=4.0.3">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -46,14 +46,13 @@
   </script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.0.2" />
+  <link rel="stylesheet" href="styles.css?v=4.0.3" />
 </head>
 <body class="map-dark">
   <header class="header">
     <div class="logo">
-      <span class="logo-icon brand-mark" aria-hidden="true">
-        <span class="brand-mark-state">LA</span>
-        <span class="brand-mark-number">911</span>
+      <span class="logo-icon">
+        <img class="logo-icon-img" src="images/louisiana911-icon-192.png" alt="Louisiana911 logo">
       </span>
       <div class="logo-text">
         <h1>Louisiana 911</h1>
@@ -120,9 +119,9 @@
       <button class="modal-close" type="button" aria-label="Close" id="info-close">×</button>
       <div class="info-content">
         <div class="info-hero">
-          <img src="https://www.vincentlarkin.com/images/site-emblem.png" alt="Vincent Larkin emblem" class="info-logo">
-          <div>
-            <h3>Louisiana 911</h3>
+          <img src="images/louisiana911-mark.png" alt="Louisiana911 logo" class="info-logo">
+          <div class="info-brand-copy">
+            <h3>Louisiana<span>911</span></h3>
             <p style="margin-bottom: 6px;">Public emergency incident feeds from communities across Louisiana.</p>
             <p style="margin-bottom: 0;">Built and maintained by Vincent Larkin.</p>
           </div>
@@ -178,7 +177,7 @@
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v4.0.2</p>
+        <p class="info-version">v4.0.3</p>
       </div>
     </div>
   </div>
@@ -268,6 +267,11 @@
         <button class="source-tab" data-source="neworleans" title="Show the latest published New Orleans calls for service">
           New Orleans <span class="daily-pill">Daily</span>
         </button>
+      </div>
+
+      <div class="source-delay-banner hidden" id="source-delay-banner" role="status" aria-live="polite">
+        <span class="source-delay-dot" aria-hidden="true"></span>
+        <span id="source-delay-text">New Orleans publishes daily</span>
       </div>
 
       <!-- Shared filters (apply to Live + History lists) -->
@@ -399,8 +403,8 @@
     const MEDICAL_MARKER_PATTERN_ID = 'medical-marker-stripes';
     
     // Keep view constrained to a few-state window around Louisiana/Texas/Arkansas
-    const southWest = L.latLng(29.0, -98.0);
-    const northEast = L.latLng(34.5, -90.0);
+    const southWest = L.latLng(28.7, -98.0);
+    const northEast = L.latLng(34.5, -88.5);
     map.setMaxBounds(L.latLngBounds(southWest, northEast));
     
     // Dark basemap (keeps the UI in dark mode) with a separate label overlay for readability.
@@ -734,6 +738,57 @@
     const batonRougeFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="agency-batonrouge"] .filter-btn'));
     const lafayetteFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="agency-lafayette"] .filter-btn'));
     const urgencyFilterButtons = Array.from(document.querySelectorAll('.filter-group[data-filter-type="urgency"] .filter-btn'));
+
+    function formatPublishedAge(milliseconds) {
+      const minutes = Math.max(0, Math.floor(milliseconds / 60000));
+      if (minutes < 1) return 'just now';
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      if (hours < 24) return `${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ''} ago`;
+      const days = Math.floor(hours / 24);
+      const remainingHours = hours % 24;
+      return `${days}d${remainingHours ? ` ${remainingHours}h` : ''} ago`;
+    }
+
+    function updateNewOrleansDelayBanner() {
+      const banner = document.getElementById('source-delay-banner');
+      const text = document.getElementById('source-delay-text');
+      const livePanel = document.getElementById('live-panel');
+      const liveVisible = livePanel && !livePanel.classList.contains('hidden');
+      const sourceCanIncludeNewOrleans = currentSource === 'all' || currentSource === 'neworleans';
+      if (!banner || !text || !liveVisible || !sourceCanIncludeNewOrleans) {
+        banner?.classList.add('hidden');
+        return;
+      }
+
+      const nolaIncidents = currentIncidents.filter(
+        incident => normalizeSource(incident?.source) === 'neworleans'
+      );
+      if (!nolaIncidents.length) {
+        if (currentSource === 'neworleans') {
+          text.textContent = 'New Orleans publishes daily • loading newest published calls…';
+          banner.classList.remove('hidden');
+        } else {
+          banner.classList.add('hidden');
+        }
+        return;
+      }
+
+      const newestTimestamp = Math.max(...nolaIncidents
+        .map(incident => Date.parse(incident.first_seen || ''))
+        .filter(Number.isFinite));
+      if (!Number.isFinite(newestTimestamp)) {
+        text.textContent = 'New Orleans publishes calls on a daily delay';
+        banner.classList.remove('hidden');
+        return;
+      }
+
+      const newestDate = new Date(newestTimestamp);
+      text.textContent = `New Orleans daily data • newest published call ${formatPublishedAge(Date.now() - newestTimestamp)}`;
+      banner.title = `Newest published New Orleans call: ${newestDate.toLocaleString('en-US')}`;
+      banner.classList.remove('hidden');
+    }
 
     function buildIncidentListSignature(incidents, keyPrefix = '') {
       const items = Array.isArray(incidents) ? incidents : [];
@@ -1407,10 +1462,10 @@
     }
 
     const MAP_COORDINATE_BOUNDS = {
-      minLat: 29.0,
+      minLat: 28.7,
       maxLat: 34.5,
       minLng: -98.0,
-      maxLng: -90.0,
+      maxLng: -88.5,
     };
 
     function coordinatePair(latValue, lngValue) {
@@ -2048,6 +2103,7 @@
         
         // Store all incidents
         currentIncidents = allIncidents;
+        updateNewOrleansDelayBanner();
 
         // Only update shared filter visibility from the active feed when the Live tab is visible.
         // Otherwise History's filter visibility would get overridden every poll.
@@ -2754,6 +2810,7 @@
         btn.classList.toggle('active', btn.dataset.source === currentSource);
       });
       syncAgencyFilterGroupsToSource();
+      updateNewOrleansDelayBanner();
       focusMapOnSourceSelection(currentSource);
       updateStatus();
 
@@ -2781,6 +2838,7 @@
         const tabName = tab.dataset.tab;
         document.getElementById('live-panel').classList.toggle('hidden', tabName !== 'live');
         document.getElementById('history-panel').classList.toggle('hidden', tabName !== 'history');
+        updateNewOrleansDelayBanner();
         
         if (tabName === 'history') {
           mapMode = 'history';
@@ -2991,7 +3049,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=4.0.2', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=4.0.3', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);
@@ -3011,6 +3069,7 @@
     loadParishOutline();
     updateIncidents();
     updateStatus();
+    setInterval(updateNewOrleansDelayBanner, 60000);
     
     // Poll for updates with dynamic interval from /api/status.
     // This keeps chatter low and aligned with backend scrape cadence.

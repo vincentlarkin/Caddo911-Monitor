@@ -94,6 +94,7 @@ python app.py --backup --backup-main-only
 - `LOUISIANA911_BACKUP_DIR` (default: `<db dir>/backups`)
 - `LOUISIANA911_BACKUP_RETENTION_WEEKS` (default: `5`, keep the most recent 5 weekly snapshots per DB)
 - `LOUISIANA911_NOLA_DATASET_ID` (default: `es9j-6y5d`; update when the City publishes a new annual Calls for Service dataset)
+- `LOUISIANA911_NOLA_RAW_DB_PATH` (optional annual raw-mirror path; supports `{year}`, default: `<db dir>/neworleans_calls_YYYY.db`)
 - `LOUISIANA911_AUTH_TOKEN` or `LOUISIANA911_AUTH_USER` + `LOUISIANA911_AUTH_PASS`
 - `LOUISIANA911_ENABLE_REFRESH_ENDPOINT` (set to `1` to enable `/api/refresh`)
 
@@ -153,7 +154,20 @@ This app currently ingests from:
 
 ### New Orleans inclusion filter
 
-The City dataset is much broader than a literal list of emergency calls. Louisiana911 imports only the newest two published dates and excludes all rows marked `selfinitiated = Y` (officer-initiated activity).
+The City dataset is much broader than a literal list of emergency calls. The regular collector imports the newest two published dates and excludes all rows marked `selfinitiated = Y` (officer-initiated activity). Preserved calendar-month history can be imported additively with `python app.py --backfill-neworleans-month YYYY-MM`; this command does not delete or replace rows outside that month.
+
+Before a statewide launch, a complete annual source mirror plus curated History can be prepared with:
+
+```bash
+python app.py --prepare-neworleans-year 2026
+```
+
+This intentionally creates two layers:
+
+- `neworleans_calls_2026.db` is the append-only raw source mirror. It stores every official row, including officer-initiated and display-filtered records. If Data.NOLA changes a row, the new payload becomes another preserved version; the previous payload is never replaced or deleted.
+- `caddo911.db` and its existing monthly archives remain the statewide serving layer. They receive only the citizen-initiated, display-retained NOLA records so `All`, Latest, History, and reports stay simple and fast.
+
+Use `--mirror-neworleans-year YYYY` to refresh only the raw mirror or `--backfill-neworleans-year YYYY` to rebuild only the curated History layer. Weekly backups include annual `neworleans_calls_YYYY.db` mirrors along with the main and monthly archive databases.
 
 The following final call types are also excluded as routine/generic activity:
 
@@ -163,6 +177,7 @@ The following final call types are also excluded as routine/generic activity:
 - `DISTURBANCE (OTHER)`
 - `FUGITIVE ATTACHMENT`
 - `INCIDENT REQUESTED BY ANOTHER AGENCY`
+- `MEDICAL`
 - `MENTAL PATIENT`
 - `RETURN FOR ADDITIONAL INFO`
 - `TOW IMPOUNDED VEHICLE (PRIVATE)`
@@ -178,11 +193,13 @@ Crime-preservation rule: if one of those generic final types has a non-generic `
 | `sources/batonrouge.py` | Baton Rouge source adapter |
 | `sources/lafayette.py` | Lafayette source adapter |
 | `sources/neworleans.py` | New Orleans daily calls-for-service adapter |
+| `sources/neworleans_archive.py` | Append-only annual NOLA raw mirror with payload version preservation |
 | `public/index.html` | Dashboard UI with map + filters |
 | `public/styles.css` | Frontend styling |
 | `public/images/` | Logos and agency icons |
 | `caddo911.db` | SQLite database (auto-created) |
 | `caddo911_archive_YYYY_MM.db` | Monthly archive databases (auto-created) |
+| `neworleans_calls_YYYY.db` | Annual append-only raw NOLA source mirror (auto-created on demand) |
 | `backups/*.db` | Weekly backup snapshots (auto-created) |
 | `requirements.txt` | Python dependencies |
 

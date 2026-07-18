@@ -26,6 +26,7 @@ from sources import caddo as caddo_source
 from sources import lafayette as lafayette_source
 from sources import batonrouge as batonrouge_source
 from sources import neworleans as neworleans_source
+from sources import neworleans_archive as neworleans_archive_source
 
 app = Flask(__name__, static_folder='public', static_url_path='')
 
@@ -108,6 +109,29 @@ def _list_archive_dbs() -> list[str]:
         if f.startswith('caddo911_archive_') and f.endswith('.db')
     ])
 
+
+def _get_neworleans_raw_db_path(year: int) -> str:
+    """Dedicated append-only raw mirror path for an annual NOLA dataset."""
+    configured = _env_setting(
+        'LOUISIANA911_NOLA_RAW_DB_PATH',
+        'CADDO911_NOLA_RAW_DB_PATH',
+    ).strip()
+    if configured:
+        expanded = os.path.expanduser(configured)
+        return expanded.format(year=year) if '{year}' in expanded else expanded
+    return os.path.join(_get_archive_dir(), f'neworleans_calls_{year:04d}.db')
+
+
+def _list_neworleans_raw_dbs() -> list[str]:
+    archive_dir = _get_archive_dir()
+    if not os.path.isdir(archive_dir):
+        return []
+    return sorted(
+        os.path.join(archive_dir, name)
+        for name in os.listdir(archive_dir)
+        if re.fullmatch(r'neworleans_calls_\d{4}\.db', name)
+    )
+
 def _get_backup_dir() -> str:
     """Directory where periodic backup snapshots are written."""
     configured = _env_setting('LOUISIANA911_BACKUP_DIR', 'CADDO911_BACKUP_DIR').strip()
@@ -186,7 +210,7 @@ def create_backup_snapshot(*, include_archives: bool = True) -> dict:
     """
     Create timestamped SQLite backups.
     - Always includes the main DB.
-    - Optionally includes archive DBs.
+    - Optionally includes monthly archives and annual raw NOLA mirrors.
     """
     backup_dir = _get_backup_dir()
     os.makedirs(backup_dir, exist_ok=True)
@@ -194,6 +218,7 @@ def create_backup_snapshot(*, include_archives: bool = True) -> dict:
     targets = [DB_PATH]
     if include_archives:
         targets.extend(_list_archive_dbs())
+        targets.extend(_list_neworleans_raw_dbs())
     created: list[str] = []
     skipped: list[str] = []
     for src in targets:
@@ -261,6 +286,7 @@ def _init_archive_db(path: str) -> None:
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hash ON incidents(hash)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_first_seen ON incidents(first_seen)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source_first_seen ON incidents(source, first_seen DESC)')
     conn.commit()
     conn.close()
 
@@ -356,6 +382,7 @@ def init_db():
     # Backfill legacy rows that predate multi-source support.
     cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_source_active_first_seen ON incidents(source, is_active, first_seen DESC)')
 
     # Metadata table (shared across collector + web processes)
     cursor.execute('''
@@ -1889,7 +1916,21 @@ def _incident_geocode_result(incident: dict, source_name: str) -> dict:
         source=source_name,
     )
 
-def process_incidents(incidents, *, source: str = 'caddo'):
+def _new_orleans_processing_priority(incident: dict) -> tuple[int, int]:
+    """Put visible NOLA rows with official points ahead of slower fallbacks."""
+    active_rank = 0 if incident.get('is_active', True) else 1
+    try:
+        has_official_point = _is_in_source_bounds(
+            float(incident.get('latitude')),
+            float(incident.get('longitude')),
+            'neworleans',
+        )
+    except (TypeError, ValueError):
+        has_official_point = False
+    return active_rank, 0 if has_official_point else 1
+
+
+def process_incidents(incidents, *, source: str = 'caddo', deactivate_missing: bool = True):
     """Store/update incidents in database"""
     global last_update
 
@@ -1902,8 +1943,15 @@ def process_incidents(incidents, *, source: str = 'caddo'):
     has_source_column = _ensure_incidents_source_column(conn)
     now = datetime.now(timezone.utc).isoformat()
     current_hashes = set()
+    ordered_incidents = list(incidents)
+    if source_default == 'neworleans':
+        # The source publishes many rows at once. Make the current official
+        # points queryable immediately, before slower 0,0 location fallbacks.
+        ordered_incidents.sort(key=_new_orleans_processing_priority)
 
-    for incident in incidents:
+    for incident_index, incident in enumerate(ordered_incidents, start=1):
+        if source_default == 'neworleans' and incident_index > 1 and (incident_index - 1) % 25 == 0:
+            conn.commit()
         incident_source = _normalize_source_name(incident.get('source') if isinstance(incident, dict) else source_default)
         incident['source'] = incident_source
         h = hash_incident(incident)
@@ -2162,23 +2210,24 @@ def process_incidents(incidents, *, source: str = 'caddo'):
             if incident_source != 'neworleans':
                 log(f"New incident: {incident['description']} at {incident['street'] or incident['cross_streets']}")
 
-    # Mark incidents no longer in feed as inactive (source-scoped).
-    if not has_source_column:
-        if source_default != 'caddo':
-            active_hashes = []
-        else:
-            cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
+    if deactivate_missing:
+        # Mark incidents no longer in feed as inactive (source-scoped).
+        if not has_source_column:
+            if source_default != 'caddo':
+                active_hashes = []
+            else:
+                cursor.execute('SELECT hash FROM incidents WHERE is_active = 1')
+                active_hashes = [row[0] for row in cursor.fetchall()]
+        elif source_default == 'caddo':
+            cursor.execute("SELECT hash FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
             active_hashes = [row[0] for row in cursor.fetchall()]
-    elif source_default == 'caddo':
-        cursor.execute("SELECT hash FROM incidents WHERE is_active = 1 AND (source = 'caddo' OR source IS NULL OR TRIM(source) = '')")
-        active_hashes = [row[0] for row in cursor.fetchall()]
-    else:
-        cursor.execute('SELECT hash FROM incidents WHERE is_active = 1 AND source = ?', (source_default,))
-        active_hashes = [row[0] for row in cursor.fetchall()]
+        else:
+            cursor.execute('SELECT hash FROM incidents WHERE is_active = 1 AND source = ?', (source_default,))
+            active_hashes = [row[0] for row in cursor.fetchall()]
 
-    for h in active_hashes:
-        if h not in current_hashes:
-            cursor.execute('UPDATE incidents SET is_active = 0 WHERE hash = ?', (h,))
+        for h in active_hashes:
+            if h not in current_hashes:
+                cursor.execute('UPDATE incidents SET is_active = 0 WHERE hash = ?', (h,))
 
     conn.commit()
     conn.close()
@@ -2271,6 +2320,7 @@ def _ensure_incidents_source_column(conn: sqlite3.Connection) -> bool:
         cursor.execute("ALTER TABLE incidents ADD COLUMN source TEXT DEFAULT 'caddo'")
         cursor.execute("UPDATE incidents SET source = 'caddo' WHERE source IS NULL OR TRIM(source) = ''")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_source ON incidents(source)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_source_active_first_seen ON incidents(source, is_active, first_seen DESC)")
         conn.commit()
         log("[DB] Added missing incidents.source column at runtime")
         return True
@@ -3951,6 +4001,7 @@ def start_collector(
     *,
     interval_seconds: int = SCRAPE_INTERVAL_SECONDS_DEFAULT,
     initial_scrape: bool = True,
+    initial_scrape_async: bool = False,
     enable_archive: bool = True,
     enable_weekly_backup: bool = True,
 ) -> BackgroundScheduler:
@@ -3965,9 +4016,15 @@ def start_collector(
 
     scheduler = BackgroundScheduler(timezone=CENTRAL_TZ)
     
-    # Calculate when the next scrape should run
-    # If we just did an initial scrape, wait the full interval before the next one
-    first_run_time = datetime.now(timezone.utc) + timedelta(seconds=int(scrape_interval_seconds)) if initial_scrape else None
+    # In web-serving mode, schedule the initial collection immediately in the
+    # scheduler thread so Flask can accept requests without waiting on feeds or
+    # fallback geocoding. Collector-only modes retain their synchronous start.
+    if initial_scrape:
+        first_run_time = datetime.now(timezone.utc) + timedelta(seconds=int(scrape_interval_seconds))
+    elif initial_scrape_async:
+        first_run_time = datetime.now(timezone.utc)
+    else:
+        first_run_time = datetime.now(timezone.utc) + timedelta(seconds=int(scrape_interval_seconds))
     
     # Scrape job - runs every N seconds (normal mode with geocoding)
     scheduler.add_job(
@@ -4262,6 +4319,91 @@ def run_backup(*, include_archives: bool = True) -> None:
         log(f"[BACKUP] Pruned {len(removed)} old backup file(s)")
 
 
+def run_new_orleans_month_backfill(month: str) -> None:
+    """Import a NOLA calendar month without deleting or replacing prior rows."""
+    init_db()
+    log(f"[NOLA] Fetching official citizen-initiated calls for {month}...")
+    incidents, coverage_label = neworleans_source.scrape_month(
+        month,
+        user_agent=SCRAPER_USER_AGENT,
+        timeout_seconds=60,
+    )
+    if not incidents:
+        log(f"[NOLA] No published rows found for {month}.")
+        return
+
+    # Backfills are additive: rows outside the requested month must never be
+    # deactivated or removed. A normal two-day refresh below restores the
+    # exact current Latest slice after the historical import.
+    process_incidents(incidents, source='neworleans', deactivate_missing=False)
+    latest_incidents, refreshed_at_text = scrape_neworleans_incidents()
+    if latest_incidents:
+        process_incidents(latest_incidents, source='neworleans')
+        _store_feed_refresh('neworleans', refreshed_at_text)
+
+    active_count = sum(1 for incident in incidents if incident.get('is_active', True))
+    log(
+        f"[NOLA] Imported {len(incidents)} preserved rows for {month} "
+        f"({active_count} in the current Latest slice). {coverage_label or ''}".strip()
+    )
+
+
+def run_new_orleans_year_mirror(year: int) -> dict:
+    """Preserve every official NOLA source row and every observed revision."""
+    db_path = _get_neworleans_raw_db_path(year)
+    log(f"[NOLA RAW] Mirroring all official {year} rows to {db_path}...")
+    result = neworleans_archive_source.mirror_year(
+        year,
+        db_path=db_path,
+        user_agent=SCRAPER_USER_AGENT,
+        timeout_seconds=120,
+        progress=log,
+    )
+    log(
+        f"[NOLA RAW] {result['status']}: {result['current_calls']:,} current calls, "
+        f"{result['call_versions']:,} preserved versions, "
+        f"quick_check={result['quick_check']}"
+    )
+    if result['status'] != 'complete' or result['quick_check'] != 'ok':
+        raise RuntimeError(
+            f"NOLA raw mirror verification failed: status={result['status']} "
+            f"quick_check={result['quick_check']}"
+        )
+    return result
+
+
+def run_new_orleans_year_backfill(year: int) -> None:
+    """Add every retained NOLA call for a year to statewide History."""
+    init_db()
+    log(f"[NOLA] Fetching all retained citizen-initiated calls for {year}...")
+    incidents, coverage_label = neworleans_source.scrape_year(
+        year,
+        user_agent=SCRAPER_USER_AGENT,
+        timeout_seconds=120,
+    )
+    if not incidents:
+        log(f"[NOLA] No published retained rows found for {year}.")
+        return
+
+    process_incidents(incidents, source='neworleans', deactivate_missing=False)
+    latest_incidents, refreshed_at_text = scrape_neworleans_incidents()
+    if latest_incidents:
+        process_incidents(latest_incidents, source='neworleans')
+        _store_feed_refresh('neworleans', refreshed_at_text)
+
+    active_count = sum(1 for incident in incidents if incident.get('is_active', True))
+    log(
+        f"[NOLA] Imported {len(incidents):,} preserved display rows for {year} "
+        f"({active_count} in the current Latest slice). {coverage_label or ''}".strip()
+    )
+
+
+def run_new_orleans_year_prepare(year: int) -> None:
+    """Build the raw annual mirror first, then the curated statewide history."""
+    run_new_orleans_year_mirror(year)
+    run_new_orleans_year_backfill(year)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Louisiana 911 public incident monitor")
     parser.add_argument("--mode", choices=["serve", "gather", "interactive"], default="serve",
@@ -4279,6 +4421,29 @@ def main() -> None:
     parser.add_argument("--backup", action="store_true", help="create a one-time SQLite backup snapshot, then exit")
     parser.add_argument("--backup-main-only", action="store_true", help="when used with --backup, only back up the main DB (skip archive DBs)")
     parser.add_argument("--no-auto-backup", action="store_true", help="disable weekly automatic backup snapshots (Sunday 11:30 PM Central)")
+    parser.add_argument(
+        "--backfill-neworleans-month",
+        metavar="YYYY-MM",
+        help="additively import one full official New Orleans calendar month, then exit",
+    )
+    parser.add_argument(
+        "--mirror-neworleans-year",
+        type=int,
+        metavar="YYYY",
+        help="append every official NOLA source row/version for a year to its raw mirror DB, then exit",
+    )
+    parser.add_argument(
+        "--backfill-neworleans-year",
+        type=int,
+        metavar="YYYY",
+        help="additively import every retained NOLA call for a year into statewide History, then exit",
+    )
+    parser.add_argument(
+        "--prepare-neworleans-year",
+        type=int,
+        metavar="YYYY",
+        help="mirror all raw NOLA rows, then add every retained call to statewide History",
+    )
     args = parser.parse_args()
 
     global QUIET
@@ -4297,6 +4462,22 @@ def main() -> None:
     # Handle one-time backup mode
     if args.backup:
         run_backup(include_archives=not args.backup_main_only)
+        return
+
+    if args.backfill_neworleans_month:
+        run_new_orleans_month_backfill(args.backfill_neworleans_month)
+        return
+
+    if args.mirror_neworleans_year:
+        run_new_orleans_year_mirror(args.mirror_neworleans_year)
+        return
+
+    if args.backfill_neworleans_year:
+        run_new_orleans_year_backfill(args.backfill_neworleans_year)
+        return
+
+    if args.prepare_neworleans_year:
+        run_new_orleans_year_prepare(args.prepare_neworleans_year)
         return
 
     # Store archive preference for start_collector
@@ -4324,7 +4505,8 @@ def main() -> None:
     # serve mode: collector + web UI immediately
     scheduler = start_collector(
         interval_seconds=args.interval,
-        initial_scrape=True,
+        initial_scrape=False,
+        initial_scrape_async=True,
         enable_archive=enable_archive,
         enable_weekly_backup=enable_weekly_backup,
     )

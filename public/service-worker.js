@@ -1,4 +1,4 @@
-const CACHE_NAME = 'louisiana911-shell-v4.0.2';
+const CACHE_NAME = 'louisiana911-shell-v4.0.3';
 const CORE_ASSETS = [
   new URL('./', self.location).toString(),
   new URL('./index.html', self.location).toString(),
@@ -7,9 +7,10 @@ const CORE_ASSETS = [
   new URL('./styles.css', self.location).toString(),
   new URL('./manifest.webmanifest', self.location).toString(),
   new URL('./favicon.ico', self.location).toString(),
-  new URL('./images/caddo911-icon-192.png', self.location).toString(),
-  new URL('./images/caddo911-icon-512.png', self.location).toString(),
-  new URL('./images/caddo911-maskable-512.png', self.location).toString(),
+  new URL('./images/louisiana911-mark.png', self.location).toString(),
+  new URL('./images/louisiana911-icon-192.png', self.location).toString(),
+  new URL('./images/louisiana911-icon-512.png', self.location).toString(),
+  new URL('./images/louisiana911-maskable-512.png', self.location).toString(),
   new URL('./images/caddo911logo.png', self.location).toString(),
   new URL('./images/caddo911logo.webp', self.location).toString(),
   new URL('./images/cfd-fire.png', self.location).toString(),

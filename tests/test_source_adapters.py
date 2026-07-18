@@ -74,7 +74,7 @@ class SourceAdapterTests(unittest.TestCase):
         incident = neworleans._normalize_row(
             {
                 "nopd_item": "G1790626",
-                "typetext": "MEDICAL",
+                "typetext": "SHOTSPOTTER- REPORTED GUNSHOTS",
                 "timecreate": "2026-07-17T23:26:47.473000",
                 "block_address": "Approx Loc: 015XX Iberville St",
                 "location": {
@@ -105,6 +105,20 @@ class SourceAdapterTests(unittest.TestCase):
                     is_recent=False,
                 )
                 self.assertIsNone(incident)
+
+    def test_new_orleans_excludes_uninformative_medical_type(self):
+        incident = neworleans._normalize_row(
+            {
+                "nopd_item": "G-MEDICAL",
+                "typetext": "MEDICAL",
+                "initialtypetext": "MEDICAL",
+                "timecreate": "2026-07-17T12:00:00",
+                "block_address": "010XX Example St",
+            },
+            is_recent=True,
+        )
+
+        self.assertIsNone(incident)
 
     def test_new_orleans_preserves_material_initial_classification(self):
         incident = neworleans._normalize_row(

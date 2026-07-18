@@ -82,7 +82,7 @@
     .logo-icon {
       width: 50px;
       height: 50px;
-      border-radius: 50%;
+      border-radius: 12px;
       overflow: hidden;
       background: rgba(0,0,0,0.25);
       border: 1px solid rgba(255, 255, 255, 0.10);
@@ -98,36 +98,6 @@
       object-fit: contain;
     }
 
-    .brand-mark {
-      display: grid;
-      place-content: center;
-      gap: 0;
-      border-color: rgba(255, 59, 59, 0.42);
-      background:
-        radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.12), transparent 36%),
-        linear-gradient(145deg, #2a0f16, #101117 70%);
-      color: var(--text);
-      text-align: center;
-      line-height: 1;
-    }
-
-    .brand-mark-state {
-      color: var(--red);
-      font-family: 'Space Grotesk', sans-serif;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.16em;
-      transform: translateX(0.08em);
-    }
-
-    .brand-mark-number {
-      margin-top: 2px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 14px;
-      font-weight: 700;
-      letter-spacing: -0.06em;
-    }
-    
     @keyframes logo-pulse {
       0%, 100% { box-shadow: 0 0 20px var(--red-glow); }
       50% { box-shadow: 0 0 40px var(--red-glow), 0 0 60px var(--red-glow); }
@@ -675,6 +645,29 @@
       background: rgba(59, 139, 255, 0.12);
     }
 
+    .source-delay-banner {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 29px;
+      padding: 6px 10px;
+      border-bottom: 1px solid rgba(59, 139, 255, 0.18);
+      background: rgba(59, 139, 255, 0.07);
+      color: #a9c8ff;
+      font-size: 9px;
+      line-height: 1.35;
+      letter-spacing: 0.01em;
+    }
+
+    .source-delay-dot {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: #78aaff;
+      box-shadow: 0 0 0 3px rgba(59, 139, 255, 0.11);
+    }
+
     .source-group {
       margin-bottom: 10px;
     }
@@ -921,6 +914,7 @@
       }
 
       body.list-view .source-tabs,
+      body.list-view .source-delay-banner,
       body.list-view .filter-bar,
       body.list-view #live-panel,
       body.list-view #history-panel {
@@ -1804,13 +1798,25 @@
     }
     
     .info-logo {
-      width: 52px;
-      height: 52px;
-      border-radius: 12px;
-      object-fit: cover;
+      width: 104px;
+      height: 104px;
+      flex: 0 0 auto;
+      border-radius: 18px;
+      object-fit: contain;
       background: rgba(255,255,255,0.04);
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 0 20px rgba(255, 59, 59, 0.12);
+    }
+
+    .info-content .info-brand-copy h3 {
+      margin-bottom: 9px;
+      color: var(--text);
+      font-size: 28px;
+      letter-spacing: -0.035em;
+    }
+
+    .info-content .info-brand-copy h3 span {
+      color: var(--red);
     }
     
     .info-content h3 {
@@ -2860,6 +2866,7 @@
 
       .sidebar.collapsed .filter-bar,
       .sidebar.collapsed .source-tabs,
+      .sidebar.collapsed .source-delay-banner,
       .sidebar.collapsed #live-panel,
       .sidebar.collapsed #history-panel,
       .sidebar.collapsed .history-controls {
@@ -2893,6 +2900,7 @@
 
       body.list-view .sidebar.collapsed .filter-bar,
       body.list-view .sidebar.collapsed .source-tabs,
+      body.list-view .sidebar.collapsed .source-delay-banner,
       body.list-view .sidebar.collapsed #live-panel,
       body.list-view .sidebar.collapsed #history-panel:not(.hidden) {
         display: flex;
@@ -2930,14 +2938,6 @@
       .logo-icon {
         width: 40px;
         height: 40px;
-      }
-
-      .brand-mark-state {
-        font-size: 9px;
-      }
-
-      .brand-mark-number {
-        font-size: 12px;
       }
 
       .logo-text h1 {
@@ -2994,6 +2994,22 @@
         min-height: 32px;
         font-size: 9px;
         padding: 6px 8px;
+      }
+
+      .source-delay-banner {
+        min-height: 28px;
+        padding: 5px max(9px, env(safe-area-inset-right)) 5px max(9px, env(safe-area-inset-left));
+        font-size: 8.5px;
+      }
+
+      .info-logo {
+        width: 78px;
+        height: 78px;
+        border-radius: 14px;
+      }
+
+      .info-content .info-brand-copy h3 {
+        font-size: 23px;
       }
 
       .panel-toggle {

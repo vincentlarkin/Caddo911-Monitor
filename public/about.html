@@ -8,7 +8,9 @@
   <meta name="robots" content="index,follow">
   <link rel="canonical" href="https://louisiana911.com/about/">
   <meta name="theme-color" content="#0a0a0f">
-  <link rel="manifest" href="/manifest.webmanifest?v=4.0.2">
+  <link rel="icon" href="/images/louisiana911-icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest?v=4.0.3">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -37,8 +39,7 @@
     .shell { width: min(920px, calc(100vw - 28px)); margin: 0 auto; padding: 24px 0 52px; }
     .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 36px; }
     .brand { display: flex; align-items: center; gap: 12px; text-decoration: none; font-family: 'Space Grotesk', sans-serif; font-weight: 700; }
-    .mark { display: grid; place-content: center; width: 44px; height: 44px; border: 1px solid rgba(255,77,85,.42); border-radius: 50%; background: #190d12; color: var(--red); font-size: 11px; text-align: center; line-height: 1.1; }
-    .mark strong { display: block; color: var(--text); font-size: 13px; }
+    .mark { display: block; width: 44px; height: 44px; border: 1px solid rgba(255,77,85,.32); border-radius: 11px; background: #0a0a0f; object-fit: contain; box-shadow: 0 5px 18px rgba(0,0,0,.34); }
     .back { padding: 10px 13px; border: 1px solid var(--border); border-radius: 9px; text-decoration: none; font-size: 11px; }
     .hero, .notice, .source { border: 1px solid var(--border); background: rgba(18,20,27,.92); box-shadow: 0 20px 70px rgba(0,0,0,.28); }
     .hero { padding: clamp(24px, 6vw, 54px); border-radius: 22px; }
@@ -70,7 +71,7 @@
 <body>
   <main class="shell">
     <nav class="topbar" aria-label="Primary navigation">
-      <a class="brand" href="/"><span class="mark">LA<strong>911</strong></span><span>Louisiana911</span></a>
+      <a class="brand" href="/"><img class="mark" src="/images/louisiana911-icon-192.png" alt="Louisiana911 logo"><span>Louisiana911</span></a>
       <a class="back" href="/">Open incident map</a>
     </nav>
 
@@ -120,6 +121,7 @@
         <li>Disturbance (Other)</li>
         <li>Fugitive Attachment</li>
         <li>Incident Requested by Another Agency</li>
+        <li>Medical</li>
         <li>Mental Patient</li>
         <li>Return for Additional Info</li>
         <li>Tow Impounded Vehicle (Private)</li>

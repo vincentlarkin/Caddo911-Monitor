@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import math
 import os
 import re
@@ -23,6 +23,7 @@ EXCLUDED_GENERIC_CALL_TYPES = frozenset(
         "DISTURBANCE (OTHER)",
         "FUGITIVE ATTACHMENT",
         "INCIDENT REQUESTED BY ANOTHER AGENCY",
+        "MEDICAL",
         "MENTAL PATIENT",
         "RETURN FOR ADDITIONAL INFO",
         "TOW IMPOUNDED VEHICLE (PRIVATE)",
@@ -143,8 +144,40 @@ def _normalize_row(row: dict, *, is_recent: bool) -> dict | None:
     }
 
 
-def scrape(*, user_agent: str, timeout_seconds: int = 30) -> tuple[list[dict], str | None]:
-    """Fetch the two newest published dates of citizen-initiated NOPD calls."""
+FIELDS = ",".join(
+    (
+        "nopd_item",
+        "type_",
+        "typetext",
+        "priority",
+        "initialtype",
+        "initialtypetext",
+        "initialpriority",
+        "timecreate",
+        "timedispatch",
+        "timearrive",
+        "timeclosed",
+        "selfinitiated",
+        "block_address",
+        "zip",
+        "policedistrict",
+        "location",
+    )
+)
+
+
+def _material_call_clause() -> str:
+    noise_values = _socrata_string_list(EXCLUDED_GENERIC_CALL_TYPES)
+    generic_initial_values = f"'',{noise_values}"
+    return (
+        "NOT ("
+        f"upper(typetext) IN ({noise_values}) AND "
+        f"upper(coalesce(initialtypetext, '')) IN ({generic_initial_values})"
+        ")"
+    )
+
+
+def _session(*, user_agent: str) -> requests.Session:
     session = requests.Session()
     session.headers.update(
         {
@@ -152,75 +185,76 @@ def scrape(*, user_agent: str, timeout_seconds: int = 30) -> tuple[list[dict], s
             "Accept": "application/json",
         }
     )
+    return session
 
-    latest_response = session.get(
-        FEED_URL,
-        params={"$select": "timecreate", "$order": "timecreate DESC", "$limit": 1},
-        timeout=timeout_seconds,
-    )
-    latest_response.raise_for_status()
-    latest_payload = latest_response.json()
-    if not latest_payload:
-        return [], None
 
-    latest_dt = _parse_local_timestamp(latest_payload[0].get("timecreate"))
-    if latest_dt is None:
-        return [], None
-    latest_date = latest_dt.date()
-    prior_date = latest_date - timedelta(days=1)
-
-    fields = ",".join(
-        (
-            "nopd_item",
-            "type_",
-            "typetext",
-            "priority",
-            "initialtype",
-            "initialtypetext",
-            "initialpriority",
-            "timecreate",
-            "timedispatch",
-            "timearrive",
-            "timeclosed",
-            "selfinitiated",
-            "block_address",
-            "zip",
-            "policedistrict",
-            "location",
-        )
-    )
-    date_clause = (
-        f"(starts_with(timecreate, '{prior_date.isoformat()}') OR "
-        f"starts_with(timecreate, '{latest_date.isoformat()}'))"
-    )
-    # Self-initiated officer activity is useful police data, but it is not a
-    # public request for service and should not be presented as a 911 call.
-    noise_values = _socrata_string_list(EXCLUDED_GENERIC_CALL_TYPES)
-    generic_initial_values = f"'',{noise_values}"
-    material_call_clause = (
-        "NOT ("
-        f"upper(typetext) IN ({noise_values}) AND "
-        f"upper(coalesce(initialtypetext, '')) IN ({generic_initial_values})"
-        ")"
-    )
-    where = f"{date_clause} AND selfinitiated = 'N' AND {material_call_clause}"
+def _latest_published_datetime(
+    session: requests.Session,
+    *,
+    timeout_seconds: int,
+) -> datetime | None:
     response = session.get(
         FEED_URL,
         params={
-            "$select": fields,
-            "$where": where,
+            "$select": "timecreate",
+            "$where": f"selfinitiated = 'N' AND {_material_call_clause()}",
             "$order": "timecreate DESC",
-            "$limit": 50000,
+            "$limit": 1,
         },
         timeout=timeout_seconds,
     )
     response.raise_for_status()
+    payload = response.json()
+    if not payload:
+        return None
+    return _parse_local_timestamp(payload[0].get("timecreate"))
 
+
+def _fetch_range_rows(
+    session: requests.Session,
+    *,
+    start_date: date,
+    end_date: date,
+    timeout_seconds: int,
+) -> list[dict]:
+    """Fetch [start_date, end_date) with pagination from the official Socrata API."""
+    date_clause = (
+        f"timecreate >= '{start_date.isoformat()}T00:00:00' AND "
+        f"timecreate < '{end_date.isoformat()}T00:00:00'"
+    )
+    # Self-initiated officer activity is useful police data, but it is not a
+    # public request for service and should not be presented as a 911 call.
+    where = f"{date_clause} AND selfinitiated = 'N' AND {_material_call_clause()}"
+    rows: list[dict] = []
+    page_size = 50000
+    offset = 0
+    while True:
+        response = session.get(
+            FEED_URL,
+            params={
+                "$select": FIELDS,
+                "$where": where,
+                "$order": "timecreate DESC,nopd_item DESC",
+                "$limit": page_size,
+                "$offset": offset,
+            },
+            timeout=timeout_seconds,
+        )
+        response.raise_for_status()
+        page = response.json()
+        rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
+def _normalize_rows(rows: list[dict], *, latest_date: date | None) -> list[dict]:
     incidents: list[dict] = []
     recent_count = 0
-    for row in response.json():
+    for row in rows:
         row_created = _parse_local_timestamp(row.get("timecreate"))
-        is_latest_day = bool(row_created and row_created.date() == latest_date)
+        is_latest_day = bool(latest_date and row_created and row_created.date() == latest_date)
         is_recent = is_latest_day and recent_count < RECENT_ACTIVE_LIMIT
         incident = _normalize_row(row, is_recent=is_recent)
         if incident is None:
@@ -228,9 +262,100 @@ def scrape(*, user_agent: str, timeout_seconds: int = 30) -> tuple[list[dict], s
         incidents.append(incident)
         if is_recent:
             recent_count += 1
+    return incidents
+
+
+def scrape(*, user_agent: str, timeout_seconds: int = 30) -> tuple[list[dict], str | None]:
+    """Fetch the two newest published dates of citizen-initiated NOPD calls."""
+    session = _session(user_agent=user_agent)
+
+    latest_dt = _latest_published_datetime(session, timeout_seconds=timeout_seconds)
+    if latest_dt is None:
+        return [], None
+    latest_date = latest_dt.date()
+    prior_date = latest_date - timedelta(days=1)
+    rows = _fetch_range_rows(
+        session,
+        start_date=prior_date,
+        end_date=latest_date + timedelta(days=1),
+        timeout_seconds=timeout_seconds,
+    )
+    incidents = _normalize_rows(rows, latest_date=latest_date)
 
     refreshed_at = (
         f"Daily log through {latest_date.strftime('%b')} "
         f"{latest_date.day}, {latest_date.year}"
     )
     return incidents, refreshed_at
+
+
+def scrape_month(
+    month: str,
+    *,
+    user_agent: str,
+    timeout_seconds: int = 30,
+) -> tuple[list[dict], str | None]:
+    """Fetch a complete calendar month for a one-time, preservation-safe backfill."""
+    try:
+        month_start = datetime.strptime(month, "%Y-%m").date().replace(day=1)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("month must use YYYY-MM") from exc
+
+    if month_start.month == 12:
+        month_end = date(month_start.year + 1, 1, 1)
+    else:
+        month_end = date(month_start.year, month_start.month + 1, 1)
+
+    session = _session(user_agent=user_agent)
+    latest_dt = _latest_published_datetime(session, timeout_seconds=timeout_seconds)
+    if latest_dt is None or latest_dt.date() < month_start:
+        return [], None
+    effective_end = min(month_end, latest_dt.date() + timedelta(days=1))
+    rows = _fetch_range_rows(
+        session,
+        start_date=month_start,
+        end_date=effective_end,
+        timeout_seconds=timeout_seconds,
+    )
+    latest_date = latest_dt.date() if month_start <= latest_dt.date() < month_end else None
+    incidents = _normalize_rows(rows, latest_date=latest_date)
+    covered_through = effective_end - timedelta(days=1)
+    label = (
+        f"Backfill {month_start.strftime('%b')} {month_start.year} "
+        f"through {covered_through.strftime('%b')} {covered_through.day}, {covered_through.year}"
+    )
+    return incidents, label
+
+
+def scrape_year(
+    year: int,
+    *,
+    user_agent: str,
+    timeout_seconds: int = 60,
+) -> tuple[list[dict], str | None]:
+    """Fetch every currently published, retained call for one calendar year."""
+    if year < 2000 or year > 2100:
+        raise ValueError("year must be between 2000 and 2100")
+
+    year_start = date(year, 1, 1)
+    year_end = date(year + 1, 1, 1)
+    session = _session(user_agent=user_agent)
+    latest_dt = _latest_published_datetime(session, timeout_seconds=timeout_seconds)
+    if latest_dt is None or latest_dt.date() < year_start:
+        return [], None
+
+    effective_end = min(year_end, latest_dt.date() + timedelta(days=1))
+    rows = _fetch_range_rows(
+        session,
+        start_date=year_start,
+        end_date=effective_end,
+        timeout_seconds=timeout_seconds,
+    )
+    latest_date = latest_dt.date() if year_start <= latest_dt.date() < year_end else None
+    incidents = _normalize_rows(rows, latest_date=latest_date)
+    covered_through = effective_end - timedelta(days=1)
+    label = (
+        f"Backfill {year} through {covered_through.strftime('%b')} "
+        f"{covered_through.day}, {covered_through.year}"
+    )
+    return incidents, label
