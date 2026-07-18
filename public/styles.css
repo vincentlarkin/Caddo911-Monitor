@@ -216,8 +216,9 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      min-width: 72px;
+      min-width: 104px;
       height: 34px;
+      font-weight: 600;
     }
 
     .location-btn:hover {
@@ -227,15 +228,24 @@
     }
 
     .location-btn .map-location-icon {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 15px;
-      line-height: 1;
+      width: 15px;
+      height: 15px;
+      flex: 0 0 auto;
+      fill: currentColor;
     }
 
     .location-btn.locating {
       border-color: rgba(255, 184, 48, 0.55);
       color: var(--amber);
       box-shadow: 0 0 18px rgba(255, 184, 48, 0.15);
+    }
+
+    .location-btn.locating .map-location-icon {
+      animation: location-search 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes location-search {
+      to { opacity: 0.45; transform: translate(-1px, 1px); }
     }
 
     .location-btn.active {
@@ -777,10 +787,25 @@
     }
     
     .incident-location {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 5px 8px;
       font-size: 11px;
       color: var(--text-dim);
       margin-bottom: 7px;
       line-height: 1.35;
+    }
+
+    .incident-map-status {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
     
     .incident-meta {
@@ -2562,16 +2587,41 @@
     }
     
     .popup-content {
+      --popup-accent: var(--blue);
       font-family: 'Space Grotesk', sans-serif;
       min-width: 210px;
       padding: 3px;
+    }
+
+    .popup-content::before {
+      content: '';
+      display: block;
+      height: 2px;
+      margin: -3px -3px 9px;
+      border-radius: 2px;
+      background: var(--popup-accent);
+    }
+
+    .popup-content.sev-high { --popup-accent: var(--red); }
+    .popup-content.sev-medium { --popup-accent: var(--amber); }
+    .popup-content.sev-low { --popup-accent: var(--blue); }
+    .popup-content.sev-service { --popup-accent: var(--green); }
+    .popup-content.sev-custody { --popup-accent: #b8bdc8; }
+    .popup-content.sev-medical { --popup-accent: var(--red); }
+
+    .popup-content.sev-medical::before {
+      background: repeating-linear-gradient(
+        135deg,
+        rgba(255, 59, 59, 0.95) 0 7px,
+        rgba(240, 242, 246, 0.9) 7px 14px
+      );
     }
     
     .popup-title {
       font-weight: 600;
       font-size: 14px;
       margin-bottom: 8px;
-      color: var(--text);
+      color: var(--popup-accent);
     }
     
     .popup-detail {

@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/images/caddo911-icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="/images/caddo911-icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest?v=3.2.95LAbeta">
+  <link rel="manifest" href="/manifest.webmanifest?v=3.2.96LAbeta">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -19,7 +19,7 @@
   <meta name="twitter:image" content="images/caddo911logo.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3.2.95LAbeta" />
+  <link rel="stylesheet" href="styles.css?v=3.2.96LAbeta" />
 </head>
 <body class="map-dark">
   <header class="header">
@@ -54,8 +54,10 @@
       </div>
       <div class="status-item status-location">
         <button class="location-btn" id="location-btn" title="Show my location" aria-label="Show my location on the map">
-          <span class="map-location-icon" aria-hidden="true">◎</span>
-          <span class="location-label">Locate</span>
+          <svg class="map-location-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.7 3.3 3.8 10.6c-.7.3-.6 1.3.1 1.5l7 1.8 1.8 7c.2.7 1.2.8 1.5.1l7.3-16.9c.3-.6-.3-1.2-.8-.8Z"/>
+          </svg>
+          <span class="location-label">My Location</span>
         </button>
       </div>
       <button class="settings-btn" id="settings-btn" onclick="toggleSettingsPanel()" title="Settings" aria-label="Settings">
@@ -141,7 +143,7 @@
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v3.2.95LAbeta</p>
+        <p class="info-version">v3.2.96LAbeta</p>
       </div>
     </div>
   </div>
@@ -497,22 +499,16 @@
 
     function setLocationButtonState(state = 'idle', title = 'Show my location') {
       if (!locationBtn) return;
-      const icon = locationBtn.querySelector('.map-location-icon');
       locationBtn.classList.remove('locating', 'active', 'error');
       locationBtn.title = title;
       locationBtn.setAttribute('aria-label', title);
 
       if (state === 'locating') {
         locationBtn.classList.add('locating');
-        if (icon) icon.textContent = '…';
       } else if (state === 'active') {
         locationBtn.classList.add('active');
-        if (icon) icon.textContent = '◎';
       } else if (state === 'error') {
         locationBtn.classList.add('error');
-        if (icon) icon.textContent = '!';
-      } else if (icon) {
-        icon.textContent = '◎';
       }
     }
 
@@ -1313,6 +1309,8 @@
 
       if (src === 'fallback' || q === 'fallback' || q === 'city-only') {
         size = mode === 'history' ? 220 : 260;
+      } else if (q === 'address') {
+        size = mode === 'history' ? 55 : 65;
       } else if (q === 'cross-only') {
         size = mode === 'history' ? 160 : 190;
       } else if (q === 'street-only') {
@@ -1346,12 +1344,38 @@
       return [incident?.street, incident?.cross_streets].filter(Boolean).join(' @ ') || 'Unknown';
     }
 
+    const MAP_COORDINATE_BOUNDS = {
+      minLat: 29.0,
+      maxLat: 34.5,
+      minLng: -98.0,
+      maxLng: -90.0,
+    };
+
+    function coordinatePair(latValue, lngValue) {
+      if (latValue == null || lngValue == null) return null;
+      if (String(latValue).trim() === '' || String(lngValue).trim() === '') return null;
+
+      const lat = Number(latValue);
+      const lng = Number(lngValue);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      if (
+        lat < MAP_COORDINATE_BOUNDS.minLat || lat > MAP_COORDINATE_BOUNDS.maxLat ||
+        lng < MAP_COORDINATE_BOUNDS.minLng || lng > MAP_COORDINATE_BOUNDS.maxLng
+      ) return null;
+      return [lat, lng];
+    }
+
+    function incidentCoordinatePair(incident) {
+      return incident ? coordinatePair(incident.latitude, incident.longitude) : null;
+    }
+
     function formatUnitCount(units) {
       const raw = String(units ?? '').trim();
       if (!raw) return '--';
 
       const numeric = Number(raw);
       if (!Number.isFinite(numeric)) return raw;
+      if (numeric === 0) return 'Units not listed';
 
       return `${raw} ${Math.abs(numeric) === 1 ? 'unit' : 'units'}`;
     }
@@ -1364,7 +1388,7 @@
       const unitLabel = formatUnitCount(incident?.units);
 
       let popupHtml = `
-        <div class="popup-content">
+        <div class="popup-content sev-${sev}">
           <div class="popup-title">${escapeHtml(incident.description || 'Incident')}</div>
           <div class="popup-detail"><span class="popup-label">Location</span>${escapeHtml(locationStr)}</div>
           <div class="popup-detail"><span class="popup-label">Time</span>${escapeHtml(formatTime(incident.time))}</div>
@@ -1439,9 +1463,7 @@
     // Check if an incident has a valid, mappable location (not "Unknown")
     function hasValidLocation(incident) {
       if (!incident) return false;
-      const lat = Number(incident.latitude);
-      const lng = Number(incident.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (!incidentCoordinatePair(incident)) return false;
       if (isUnknownLocation(incident)) return false;
       return true;
     }
@@ -1478,7 +1500,7 @@
 
       if (fit && mappableIncidents.length > 0) {
         try {
-          const bounds = L.latLngBounds(mappableIncidents.map(i => [i.latitude, i.longitude]));
+          const bounds = L.latLngBounds(mappableIncidents.map(incidentCoordinatePair));
           map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
         } catch (e) {
           // ignore fit errors
@@ -1494,7 +1516,9 @@
     }
 
     function smoothFocusOnPoint(lat, lng, { targetZoom = 15 } = {}) {
-      const center = L.latLng(Number(lat), Number(lng));
+      const pair = coordinatePair(lat, lng);
+      if (!pair) return false;
+      const center = L.latLng(pair[0], pair[1]);
       const currentCenter = map.getCenter();
       const distanceKm = map.distance(currentCenter, center) / 1000;
       const currentZoom = map.getZoom();
@@ -1505,7 +1529,7 @@
       // Very long jumps feel better as an immediate reposition.
       if (distanceKm > 140) {
         map.setView(center, zoomTarget, { animate: false });
-        return;
+        return true;
       }
 
       // Keep pans quick so the target is visible promptly.
@@ -1522,6 +1546,7 @@
           map.setZoom(zoomTarget, { animate: true });
         });
       }
+      return true;
     }
     
     // Create incident card
@@ -1530,26 +1555,28 @@
       const sevClass = getSeverityClass(sev);
       const agencyDisplay = formatAgencyDisplay(incident);
       const unitLabel = formatUnitCount(incident?.units);
-      const hasLocation = hasValidLocation(incident);
+      const coordinates = incidentCoordinatePair(incident);
+      const hasLocation = Boolean(coordinates) && !isUnknownLocation(incident);
       const interactiveClass = hasLocation ? ' is-actionable' : '';
       const interactionAttrs = hasLocation
-        ? ` role="button" tabindex="0" onclick="focusIncident(${incident.latitude}, ${incident.longitude})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusIncident(${incident.latitude}, ${incident.longitude}); }"`
-        : '';
+        ? ` role="button" tabindex="0" title="Show this incident on the map" onclick="focusIncident(${coordinates[0]}, ${coordinates[1]})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); focusIncident(${coordinates[0]}, ${coordinates[1]}); }"`
+        : ' title="Map location unavailable"';
       const locationText = incidentLocationText(incident);
+      const mapStatus = hasLocation ? '' : '<span class="incident-map-status">Map unavailable</span>';
       
       return `
         <div class="incident-card ${sevClass} ${isNew ? 'new' : ''}${interactiveClass}"
              data-id="${incident.id}"${interactionAttrs}>
           <div class="incident-header">
-            <span class="incident-type">${incident.description}</span>
+            <span class="incident-type">${escapeHtml(incident.description || 'Incident')}</span>
             <span class="incident-time">${formatTime(incident.time)}</span>
           </div>
           <div class="incident-location">
-            ${locationText}
+            <span>${escapeHtml(locationText)}</span>${mapStatus}
           </div>
           <div class="incident-meta">
-            <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${agencyDisplay}</span>
-            <span class="incident-units">${sev.toUpperCase()} • ${unitLabel} • ${incident.municipality}</span>
+            <span class="incident-agency ${sevClass}" title="Severity: ${sev.toUpperCase()}">${escapeHtml(agencyDisplay)}</span>
+            <span class="incident-units">${escapeHtml(sev.toUpperCase())} • ${escapeHtml(unitLabel)} • ${escapeHtml(incident.municipality || 'Unknown')}</span>
           </div>
         </div>
       `;
@@ -1557,18 +1584,19 @@
     
     // Focus on incident on map
     window.focusIncident = function(lat, lng) {
-      const nLat = Number(lat);
-      const nLng = Number(lng);
-      if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) return;
+      const pair = coordinatePair(lat, lng);
+      if (!pair) return false;
+      const [nLat, nLng] = pair;
       if (viewMode === 'list') {
         setViewMode('map');
         requestAnimationFrame(() => {
           map.invalidateSize();
           smoothFocusOnPoint(nLat, nLng, { targetZoom: 15 });
         });
-        return;
+        return true;
       }
       smoothFocusOnPoint(nLat, nLng, { targetZoom: 15 });
+      return true;
     };
     
     // Settings modal
@@ -2883,7 +2911,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=3.2.95LAbeta', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=3.2.96LAbeta', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);

@@ -11,6 +11,18 @@ from bs4 import BeautifulSoup
 
 FEED_URL = "https://lafayette911.org/wp-json/traffic-feed/v1/data"
 
+# The feed renders the municipality on a new line, but HTML text extraction
+# collapses that line into the preceding cross street. Match known service-area
+# names at the end instead of treating the whole uppercase suffix as a city.
+MUNICIPALITY_SUFFIXES = (
+    "LAFAYETTE",
+    "BROUSSARD",
+    "CARENCRO",
+    "DUSON",
+    "SCOTT",
+    "YOUNGSVILLE",
+)
+
 
 def _clean_ws(value: str | None) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
@@ -45,9 +57,14 @@ def _split_location(value: str | None) -> tuple[str, str, str]:
 
     municipality = ""
     base = raw
-    city_match = re.search(r"([A-Z][A-Z\s]+),\s*LA\b", base)
+    city_pattern = "|".join(re.escape(name) for name in MUNICIPALITY_SUFFIXES)
+    city_match = re.search(
+        rf"\b({city_pattern})\s*,\s*LA\s*$",
+        base,
+        flags=re.IGNORECASE,
+    )
     if city_match:
-        municipality = _clean_ws(city_match.group(1))
+        municipality = _clean_ws(city_match.group(1)).upper()
         base = _clean_ws(base[: city_match.start()])
 
     if "/" in base:

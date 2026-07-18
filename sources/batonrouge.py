@@ -54,6 +54,21 @@ def _extract_refreshed_at_text(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _split_location(location: str, cross_street: str) -> tuple[str, str]:
+    """Normalize the feed's address and intersection variants."""
+    location_clean = _clean_ws(location)
+    cross_clean = _clean_ws(cross_street)
+
+    # A location such as "HOOPER RD / SULLIVAN RD" is an intersection, while
+    # a leading house number is a normal street address and should stay whole.
+    if not re.match(r"^\d+[A-Z-]*\s+", location_clean, flags=re.IGNORECASE):
+        parts = [_clean_ws(part) for part in location_clean.split("/", 1)]
+        if len(parts) == 2 and all(parts):
+            return parts[0], parts[1]
+
+    return location_clean, cross_clean
+
+
 def scrape(*, user_agent: str, timeout_seconds: int = 15) -> tuple[list[dict], str | None]:
     response = requests.get(
         FEED_URL,
@@ -83,6 +98,8 @@ def scrape(*, user_agent: str, timeout_seconds: int = 15) -> tuple[list[dict], s
         if not incident_type:
             continue
 
+        street, cross_streets = _split_location(location, cross_street)
+
         incidents.append(
             {
                 "source": "batonrouge",
@@ -90,8 +107,8 @@ def scrape(*, user_agent: str, timeout_seconds: int = 15) -> tuple[list[dict], s
                 "time": _parse_time_to_hhmm(time_raw),
                 "units": 1,
                 "description": incident_type,
-                "street": location,
-                "cross_streets": cross_street,
+                "street": street,
+                "cross_streets": cross_streets,
                 "municipality": "Baton Rouge",
             }
         )

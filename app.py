@@ -719,11 +719,12 @@ geocode_cache = {}
 geocode_intersection_cache = {}
 
 # Increment whenever stored coordinates need to be reconsidered because the
-# validation/ranking algorithm changed. Version 2 understands that the Caddo
-# feed's two cross streets usually bracket a segment of the named street.
-GEOCODER_VERSION = 2
+# validation/ranking algorithm changed. Version 3 adds verified numbered
+# addresses and tighter source-area validation alongside Caddo street segments.
+GEOCODER_VERSION = 3
 ARCGIS_INTERSECTION_MIN_SCORE = 90.0
 ARCGIS_STREET_MIN_SCORE = 85.0
+ARCGIS_ADDRESS_MIN_SCORE = 90.0
 MAX_STREET_SEGMENT_METERS = 8000.0
 
 ROAD_TYPE_TOKENS = {
@@ -846,7 +847,7 @@ SOURCE_MUNICIPALITY_ALIASES = {
 SOURCE_GEO_PROFILES = {
     "caddo": {
         "lat_min": 32.10,
-        "lat_max": 32.90,
+        "lat_max": 33.05,
         "lon_min": -94.10,
         "lon_max": -93.62,
         "center_lat": 32.5252,
@@ -920,6 +921,32 @@ def _is_in_source_bounds(lat: float, lon: float, source: str | None) -> bool:
     if polygon:
         return _point_in_ring(lon, lat, polygon)
     return True
+
+
+def _arcgis_in_source_scope(location, source: str | None) -> bool:
+    """Validate a candidate using bounds plus ArcGIS parish metadata."""
+    source_name = _normalize_source_name(source)
+    profile = _source_geo_profile(source_name)
+    try:
+        lat = float(location.latitude)
+        lon = float(location.longitude)
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+    if not (
+        profile["lat_min"] < lat < profile["lat_max"]
+        and profile["lon_min"] < lon < profile["lon_max"]
+    ):
+        return False
+
+    if source_name != "caddo" or _is_in_source_bounds(lat, lon, source_name):
+        return True
+
+    # The detailed Census ring is intentionally strict around the river, but
+    # ArcGIS can authoritatively identify a near-edge result as Caddo Parish.
+    attrs = _arcgis_attributes(location)
+    subregion = _clean_ws(attrs.get("Subregion") or "").lower()
+    return subregion == "caddo parish"
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
@@ -1211,6 +1238,48 @@ def _arcgis_matches_single_road(location, requested_road: str) -> bool:
     return _road_name_matches(requested_road, _arcgis_single_road(location))
 
 
+def _split_numbered_address(value: str | None) -> tuple[str, str] | None:
+    match = re.match(
+        r"^\s*(\d+[A-Z]?(?:-\d+)?)\s+(.+?)\s*$",
+        _clean_ws(value or ""),
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return match.group(1).upper(), match.group(2)
+
+
+def _arcgis_matches_numbered_address(location, requested_address: str) -> bool:
+    requested = _split_numbered_address(requested_address)
+    if not requested:
+        return False
+
+    attrs = _arcgis_attributes(location)
+    address_type = _clean_ws(attrs.get("Addr_type") or "").lower()
+    if address_type not in {"pointaddress", "streetaddress", "subaddress"}:
+        return False
+    if _arcgis_score(location) < ARCGIS_ADDRESS_MIN_SCORE:
+        return False
+
+    requested_number, requested_road = requested
+    matched_number = _clean_ws(attrs.get("AddNum") or "").upper()
+    if not matched_number:
+        match_address = _clean_ws(
+            attrs.get("Match_addr")
+            or getattr(location, "address", "")
+            or (getattr(location, "raw", None) or {}).get("address", "")
+        )
+        matched = _split_numbered_address(match_address.split(",", 1)[0])
+        matched_number = matched[0] if matched else ""
+
+    matched_road = _arcgis_single_road(location)
+    matched_address_parts = _split_numbered_address(matched_road)
+    if matched_address_parts:
+        matched_road = matched_address_parts[1]
+
+    return matched_number == requested_number and _road_name_matches(requested_road, matched_road)
+
+
 def _as_location_list(value) -> list:
     if not value:
         return []
@@ -1250,7 +1319,7 @@ def _find_arcgis_intersection(
         matches = []
         for location in locations[:10]:
             try:
-                if not _is_in_source_bounds(float(location.latitude), float(location.longitude), source_name):
+                if not _arcgis_in_source_scope(location, source_name):
                     continue
                 if not _arcgis_matches_intersection(location, road_a, road_b):
                     continue
@@ -1296,7 +1365,7 @@ def _find_arcgis_street(
         matches = []
         for location in locations[:10]:
             try:
-                if not _is_in_source_bounds(float(location.latitude), float(location.longitude), source_name):
+                if not _arcgis_in_source_scope(location, source_name):
                     continue
                 if not _arcgis_matches_single_road(location, road):
                     continue
@@ -1311,6 +1380,49 @@ def _find_arcgis_street(
                 "lng": float(location.longitude),
                 "source": "arcgis",
                 "quality": quality,
+                "query": query,
+            }
+    return None
+
+
+def _find_arcgis_address(
+    address: str,
+    locality_variants: list[tuple[str, ...]],
+    source_name: str,
+    attempt_state: dict | None = None,
+) -> dict | None:
+    for locality_parts in locality_variants:
+        query = ", ".join((address, *locality_parts))
+        try:
+            locations = _as_location_list(geolocator_arcgis.geocode(
+                query,
+                exactly_one=False,
+                timeout=3,
+                out_fields="*",
+            ))
+            if attempt_state is not None:
+                attempt_state["provider_responded"] = True
+        except Exception:
+            continue
+
+        matches = []
+        for location in locations[:10]:
+            try:
+                if not _arcgis_in_source_scope(location, source_name):
+                    continue
+                if not _arcgis_matches_numbered_address(location, address):
+                    continue
+                matches.append(location)
+            except (TypeError, ValueError, AttributeError):
+                continue
+
+        if matches:
+            location = max(matches, key=_arcgis_score)
+            return {
+                "lat": float(location.latitude),
+                "lng": float(location.longitude),
+                "source": "arcgis",
+                "quality": "address",
                 "query": query,
             }
     return None
@@ -1365,6 +1477,21 @@ def geocode_address(street, cross_streets, municipality, source: str = 'caddo'):
         return geocode_cache[cache_key]
 
     attempt_state = {"provider_responded": False}
+
+    # Lafayette and Baton Rouge commonly publish a numbered address plus a
+    # nearby cross street. The address is more precise than forcing those
+    # fields through intersection matching.
+    if street_clean and _split_numbered_address(street_clean):
+        result = _find_arcgis_address(
+            street_clean,
+            locality_variants,
+            source_name,
+            attempt_state,
+        )
+        if result:
+            geocode_cache[cache_key] = result
+            log(f"  [ARC] address | {result['query']} -> ({result['lat']:.5f}, {result['lng']:.5f})")
+            return result
 
     # First validate the named street against each bracketing cross street.
     # ArcGIS's Addr_type=StreetInt plus returned road components are required;
@@ -1593,11 +1720,18 @@ def process_incidents(incidents, *, source: str = 'caddo'):
                 existing_cols = "old"
         
         if existing:
-            # Update last_seen
+            # Unit assignments can change while the incident remains active.
+            # Refresh mutable feed fields instead of freezing their first value.
             try:
-                cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1, source = ? WHERE hash = ?', (now, incident_source, h))
+                cursor.execute(
+                    'UPDATE incidents SET last_seen = ?, is_active = 1, source = ?, units = ? WHERE hash = ?',
+                    (now, incident_source, incident.get('units'), h),
+                )
             except sqlite3.OperationalError:
-                cursor.execute('UPDATE incidents SET last_seen = ?, is_active = 1 WHERE hash = ?', (now, h))
+                cursor.execute(
+                    'UPDATE incidents SET last_seen = ?, is_active = 1, units = ? WHERE hash = ?',
+                    (now, incident.get('units'), h),
+                )
 
             # Opportunistic re-geocode: if we previously fell back (or have no coords),
             # try again using the improved intersection logic. This keeps your DB, but improves

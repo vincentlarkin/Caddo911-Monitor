@@ -18,18 +18,20 @@ def tearDownModule():
 
 
 class FakeLocation:
-    def __init__(self, address, latitude, longitude, *, address_type, score=100.0):
+    def __init__(self, address, latitude, longitude, *, address_type, score=100.0, attributes=None):
         self.address = address
         self.latitude = latitude
         self.longitude = longitude
+        raw_attributes = {
+            "Addr_type": address_type,
+            "Score": score,
+            "Match_addr": address,
+        }
+        raw_attributes.update(attributes or {})
         self.raw = {
             "address": address,
             "score": score,
-            "attributes": {
-                "Addr_type": address_type,
-                "Score": score,
-                "Match_addr": address,
-            },
+            "attributes": raw_attributes,
         }
 
 
@@ -198,6 +200,104 @@ class GeocodingTests(unittest.TestCase):
         self.assertEqual("street+cross", result["quality"])
         self.assertAlmostEqual(32.443362019231, result["lat"])
 
+    def test_numbered_regional_address_is_geocoded_before_cross_street(self):
+        query = (
+            "3142 AMBASSADOR CAFFERY PKWY, "
+            "Lafayette, Lafayette Parish, LA"
+        )
+        fake = FakeArcGIS({
+            query: [FakeLocation(
+                "3142 Ambassador Caffery Pkwy, Lafayette, Louisiana, 70506",
+                30.187287703244,
+                -92.078523185141,
+                address_type="PointAddress",
+                attributes={
+                    "AddNum": "3142",
+                    "StName": "Ambassador Caffery",
+                    "StType": "Pkwy",
+                    "City": "Lafayette",
+                    "Subregion": "Lafayette Parish",
+                },
+            )],
+        })
+        app.geolocator_arcgis = fake
+
+        result = app.geocode_address(
+            "3142 AMBASSADOR CAFFERY PKWY",
+            "CURRAN PKWY",
+            "LAFAYETTE",
+            source="lafayette",
+        )
+
+        self.assertEqual("address", result["quality"])
+        self.assertAlmostEqual(30.187287703244, result["lat"])
+        self.assertEqual(query, fake.calls[0][0])
+
+    def test_arcgis_caddo_metadata_allows_valid_near_edge_intersection(self):
+        query = (
+            "MAYFAIR & HEATHERWOOD DR, "
+            "Shreveport, Caddo Parish, LA"
+        )
+        fake = FakeArcGIS({
+            query: [FakeLocation(
+                "Mayfair Dr & Heatherwood Dr, Shreveport, Louisiana, 71107",
+                32.543521990321,
+                -93.75450903259,
+                address_type="StreetInt",
+                score=99.8,
+                attributes={
+                    "StName1": "Mayfair",
+                    "StType1": "Dr",
+                    "StName2": "Heatherwood",
+                    "StType2": "Dr",
+                    "City": "Shreveport",
+                    "Subregion": "Caddo Parish",
+                },
+            )],
+        })
+        app.geolocator_arcgis = fake
+
+        result = app.geocode_address(
+            "MAYFAIR",
+            "HEATHERWOOD DR & GRAYSTONE DR",
+            "SHV",
+            source="caddo",
+        )
+
+        self.assertEqual("street+cross", result["quality"])
+        self.assertAlmostEqual(32.543521990321, result["lat"])
+
+    def test_northern_caddo_intersection_is_inside_source_bounds(self):
+        query = "COMMUNITY & CHRISTIAN ST, Caddo Parish, LA"
+        fake = FakeArcGIS({
+            query: [FakeLocation(
+                "Community St & Christian St, Hosston, Louisiana, 71043",
+                32.902640985745,
+                -93.88339998847,
+                address_type="StreetInt",
+                score=99.74,
+                attributes={
+                    "StName1": "Community",
+                    "StType1": "St",
+                    "StName2": "Christian",
+                    "StType2": "St",
+                    "City": "Hosston",
+                    "Subregion": "Caddo Parish",
+                },
+            )],
+        })
+        app.geolocator_arcgis = fake
+
+        result = app.geocode_address(
+            "COMMUNITY",
+            "CHRISTIAN ST & DEAD END",
+            "CADD",
+            source="caddo",
+        )
+
+        self.assertEqual("street+cross", result["quality"])
+        self.assertAlmostEqual(32.902640985745, result["lat"])
+
     def test_road_matching_respects_conflicting_directions(self):
         self.assertTrue(app._road_name_matches(
             "E BERT KOUNS INDUSTRIAL",
@@ -282,6 +382,55 @@ class GeocodingTests(unittest.TestCase):
                 self.assertAlmostEqual(-93.7140399886825, row["longitude"], places=8)
                 self.assertEqual("street-segment", row["geocode_quality"])
                 self.assertEqual(app.GEOCODER_VERSION, row["geocode_version"])
+        finally:
+            app.DB_PATH = original_db_path
+
+    def test_existing_incident_refreshes_mutable_unit_count(self):
+        incident = {
+            "source": "caddo",
+            "agency": "SPD",
+            "time": "1950",
+            "units": 1,
+            "description": "ASSAULT & BATTERY",
+            "street": "MAYFAIR",
+            "cross_streets": "HEATHERWOOD DR & GRAYSTONE DR",
+            "municipality": "SHV",
+        }
+
+        original_db_path = app.DB_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                app.DB_PATH = os.path.join(tmp_dir, "caddo911.db")
+                app.init_db()
+                incident_hash = app.hash_incident(incident)
+                conn = app.db_connect()
+                conn.execute(
+                    """INSERT INTO incidents (
+                        hash, agency, time, units, description, street,
+                        cross_streets, municipality, source, latitude, longitude,
+                        first_seen, last_seen, is_active, geocode_source,
+                        geocode_quality, geocode_version
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        incident_hash, "SPD", "1950", 2, "ASSAULT & BATTERY",
+                        "MAYFAIR", "HEATHERWOOD DR & GRAYSTONE DR", "SHV",
+                        "caddo", 32.543521990321, -93.75450903259,
+                        "2026-07-18T00:52:24+00:00", "2026-07-18T00:52:24+00:00",
+                        1, "arcgis", "street+cross", app.GEOCODER_VERSION,
+                    ),
+                )
+                conn.commit()
+                conn.close()
+
+                app.process_incidents([dict(incident)], source="caddo")
+
+                conn = app.db_connect(row_factory=True)
+                row = conn.execute(
+                    "SELECT units FROM incidents WHERE hash = ?",
+                    (incident_hash,),
+                ).fetchone()
+                conn.close()
+                self.assertEqual(1, row["units"])
         finally:
             app.DB_PATH = original_db_path
 
