@@ -638,14 +638,10 @@ except Exception as e:
     # Don't crash import; the process may not have its volume mounted yet.
     log(f"[WARN] Database init failed: {e}")
 
-# --- Security hardening (optional auth + headers) ---
 AUTH_TOKEN = _env_setting('LOUISIANA911_AUTH_TOKEN', 'CADDO911_AUTH_TOKEN') or None
 AUTH_USER = _env_setting('LOUISIANA911_AUTH_USER', 'CADDO911_AUTH_USER') or None
 AUTH_PASS = _env_setting('LOUISIANA911_AUTH_PASS', 'CADDO911_AUTH_PASS') or None
 
-# Simple in-process report rate limiting. This is intentionally lightweight:
-# enough to slow accidental refresh loops and casual abuse without adding
-# infrastructure or dependencies.
 REPORT_PAGE_RATE_LIMIT = int(_env_setting('LOUISIANA911_REPORT_PAGE_RATE_LIMIT', 'CADDO911_REPORT_PAGE_RATE_LIMIT', '120'))
 REPORT_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_REPORT_API_RATE_LIMIT', 'CADDO911_REPORT_API_RATE_LIMIT', '90'))
 INCIDENT_ACTIVE_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_ACTIVE_API_RATE_LIMIT', 'CADDO911_ACTIVE_API_RATE_LIMIT', '120'))
@@ -785,12 +781,6 @@ def _check_report_rate_limit():
 
 
 def _api_request_guard():
-    """Block cross-site and address-bar API access used for casual extraction.
-
-    Browser Fetch Metadata is defense in depth, not secrecy: a determined
-    client can imitate these headers. It still prevents cross-site browser use
-    and makes API URLs opened directly in a browser behave as unavailable.
-    """
     if not request.path.startswith('/api/'):
         return None
 
@@ -3669,8 +3659,6 @@ def get_history():
     date = request.args.get('date')  # YYYY-MM-DD format
     source_filter = _normalize_source_filter(request.args.get('source'))
 
-    # The public UI is date-oriented. Refuse an unbounded all-history response
-    # instead of allowing a malformed or hand-built request to dump retention.
     if not date:
         return jsonify({'error': 'date is required (YYYY-MM-DD)'}), 400
 

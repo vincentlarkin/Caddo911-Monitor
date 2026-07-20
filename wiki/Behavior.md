@@ -1,67 +1,24 @@
 # Behavior
 
-This page documents user-visible runtime behavior of the dashboard and data pipeline.
+## Map markers
 
-## Map markers are triangles (not pinpoint dots)
+Incidents use semi-transparent triangles instead of pinpoint dots. The shape represents a general area, and larger triangles indicate a less precise public location.
 
-To avoid implying “pinpoint precision” for geocoded incidents, the map does **not** draw a single exact dot.
-Instead, each incident is rendered as a **small semi-transparent triangle** (Leaflet polygon) centered on the incident’s stored latitude/longitude.
+If a location cannot be validated, the incident remains available in the list without a map marker.
 
-- **Why triangles**: geocoding is an estimate; a small area communicates “general vicinity” better than a dot.
-- **Deterministic rotation**: the triangle is rotated deterministically per incident so it doesn’t “wiggle” on refresh.
+## Colors
 
-### Triangle size scales by geocode confidence
+- Red: higher severity
+- Yellow: medium severity
+- Blue: lower severity or public service
+- Striped purple: medical or EMS
 
-Triangle size is based on the incident’s stored geocoding metadata:
+The same color language is used in the list and on the map. These categories are Louisiana911 display labels, not official agency classifications.
 
-- **Smaller triangles**: validated intersection geocodes (ex: `geocode_quality = intersection-2`)
-- **Larger triangles**: lower-confidence geocodes (ex: `fallback`, `city-only`, `cross-only`, `street-only`)
+## Live and historical views
 
-This makes uncertain placements visually less precise while keeping high-confidence placements tight.
+Latest shows currently published information. History shows available records for a selected date. Source and severity filters apply to both views.
 
-## Colors represent severity (not agency)
+## Location quality
 
-The UI uses a **severity-first** color scheme so colors have consistent meaning across the sidebar and the map:
-
-- **Red**: high severity (life safety / violence / weapons / major incidents)
-- **Yellow**: medium severity (theft / hazards / non-injury accidents, etc.)
-- **Blue**: low severity (follow-up / reports / citizen assistance, etc.)
-
-### Where severity colors appear
-
-- **Sidebar cards**: the left accent bar and the agency badge use severity colors
-- **Map triangles**: triangle fill/stroke uses the same severity color as the sidebar
-
-### Severity classification (keyword-based)
-
-Severity is derived from the incident `description` using keyword matching.
-Examples of intent:
-
-- **High (red)**: medical emergencies, fires/smoke, assaults/battery, shots fired/weapons, hit-and-run, serious injury accidents
-- **Medium (yellow)**: stolen vehicle/theft/burglary, loose livestock/road hazards, typical crashes/accidents
-- **Low (blue)**: follow-up investigations, reports, citizen assists, property checks
-
-## Geocoding is intersection-first and self-healing (no DB wipe required)
-
-Incidents are geocoded using a validated street-segment strategy:
-
-- With a named street and two cross streets, validate `street & cross1` and `street & cross2`, then map the midpoint of that bracketed segment.
-- With one cross street, validate the named street and cross street as a real intersection.
-- If the street field is empty or is not a road, validate `cross1 & cross2` as the real intersection.
-- ArcGIS results are accepted as intersections only when the provider reports `StreetInt`, returns both requested road names, meets the confidence threshold, and falls inside the source boundary.
-- If specific cross-street evidence cannot be validated, the incident stays in the list without a map marker; the app does not invent a city-center coordinate.
-
-The app stores geocoding metadata on each incident:
-
-- `geocode_source`: `arcgis` | `osm` | `unresolved`
-- `geocode_quality`: `street-segment` | `intersection-2` | `street+cross` | `street-only` | `cross-only` | `unresolved`
-- `geocode_query`: the provider query used (two queries separated by `||` for a validated segment)
-- `geocoded_at`: when the geocode was produced (UTC)
-- `geocode_version`: the validation algorithm version that produced the stored result
-
-### Existing DB rows can improve over time
-
-When an incident already exists, the app can **re-geocode** it when its result is low-quality or was created by an older geocoder version. This also replaces old coordinates that were incorrectly labeled as intersections.
-
-This lets you keep your existing `caddo911.db` while improving “bad” points as new scrapes arrive.
-
+Published coordinates and road information are checked before display. Approximate placements are labeled, and an unresolved location is not replaced with a guessed city-center point.

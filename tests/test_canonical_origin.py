@@ -125,7 +125,7 @@ class CanonicalOriginTests(unittest.TestCase):
         self.assertIn("openIncidentDialog(activeIncident", html)
         self.assertIn("const marker = L.featureGroup([triangle, hitTarget])", html)
 
-    def test_api_fetch_metadata_blocks_cross_site_and_browser_navigation(self):
+    def test_api_request_contexts(self):
         cross_site = self.client.get(
             '/api/incidents/active',
             headers={
@@ -156,7 +156,7 @@ class CanonicalOriginTests(unittest.TestCase):
         self.assertEqual(404, direct_navigation.status_code)
         self.assertEqual(404, headerless_client.status_code)
 
-    def test_same_origin_api_is_private_uncached_and_history_requires_date(self):
+    def test_api_response_contract(self):
         headers = {
             'Host': 'louisiana911.com',
             'X-Forwarded-Proto': 'https',
