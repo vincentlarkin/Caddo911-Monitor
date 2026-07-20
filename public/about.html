@@ -18,10 +18,11 @@
   <meta name="theme-color" content="#0a0a0f">
   <meta name="color-scheme" content="dark">
   <meta name="application-name" content="Louisiana911">
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="icon" href="/images/louisiana911-icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest?v=4.1.4">
+  <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon">
+  <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+  <link rel="icon" href="/favicon-96x96.png" sizes="96x96" type="image/png">
+  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png" sizes="192x192">
+  <link rel="manifest" href="/manifest.webmanifest?v=4.2.1">
   <meta property="og:title" content="About Louisiana911 | Louisiana &amp; Caddo 911 Coverage">
   <meta property="og:description" content="How Louisiana911 combines official public incident feeds while keeping delays, filters, and location uncertainty visible.">
   <meta property="og:image" content="https://louisiana911.com/og.png">
@@ -115,7 +116,9 @@
     .source h2 { font-size: 20px; }
     .cadence { display: inline-flex; margin: 11px 0 12px; padding: 5px 8px; border: 1px solid rgba(94,158,255,.35); border-radius: 999px; color: #8bb7ff; font-size: 9px; font-weight: 700; text-transform: uppercase; }
     .source p { margin: 0 0 16px; color: var(--dim); font-family: 'Space Grotesk', sans-serif; line-height: 1.6; }
+    .source-links { display: flex; flex-wrap: wrap; gap: 9px 15px; }
     .source a { color: var(--blue); font-size: 11px; }
+    .source a:first-child { color: var(--text); font-weight: 700; }
       .privacy { margin: 40px 0 0; }
       .privacy h2 { margin-bottom: 12px; font-size: 26px; }
       .privacy p { color: var(--dim); font-family: 'Space Grotesk', sans-serif; line-height: 1.7; }
@@ -149,22 +152,22 @@
       <article class="source">
         <h2>Caddo Parish</h2><span class="cadence">Live active events</span>
         <p>Police, fire, EMS, sheriff, and parish fire-district events from the Caddo Parish 911 public feed.</p>
-        <a href="https://ias.ecc.caddo911.com/All_ActiveEvents.aspx" rel="noopener noreferrer">Official Caddo 911 feed</a>
+        <div class="source-links"><a href="/caddo911/">Caddo coverage details</a><a href="https://ias.ecc.caddo911.com/All_ActiveEvents.aspx" rel="noopener noreferrer">Official feed</a></div>
       </article>
       <article class="source">
         <h2>Baton Rouge</h2><span class="cadence">Live traffic</span>
         <p>Current traffic incidents and approximate map points published by the City of Baton Rouge and Parish of East Baton Rouge.</p>
-        <a href="https://city.brla.gov/traffic/incidents.asp" rel="noopener noreferrer">Official Baton Rouge feed</a>
+        <div class="source-links"><a href="/coverage/baton-rouge/">Baton Rouge coverage details</a><a href="https://city.brla.gov/traffic/incidents.asp" rel="noopener noreferrer">Official feed</a></div>
       </article>
       <article class="source">
         <h2>Lafayette Parish</h2><span class="cadence">Live traffic</span>
         <p>Current traffic conditions published by the Lafayette Parish Communication District.</p>
-        <a href="https://lafayette911.org/traffic/" rel="noopener noreferrer">Official Lafayette feed</a>
+        <div class="source-links"><a href="/coverage/lafayette/">Lafayette coverage details</a><a href="https://lafayette911.org/traffic/" rel="noopener noreferrer">Official feed</a></div>
       </article>
       <article class="source">
         <h2>New Orleans</h2><span class="cadence">Daily calls for service</span>
         <p>Citizen-initiated NOPD calls for service supplied by OPCD and published by the City at block or intersection level.</p>
-        <a href="https://data.nola.gov/Public-Safety-and-Preparedness/Calls-for-Service-2026/es9j-6y5d" rel="noopener noreferrer">Official Data.NOLA dataset</a>
+        <div class="source-links"><a href="/coverage/new-orleans/">New Orleans coverage details</a><a href="https://data.nola.gov/Public-Safety-and-Preparedness/Calls-for-Service-2026/es9j-6y5d" rel="noopener noreferrer">Official dataset</a></div>
       </article>
     </section>
 

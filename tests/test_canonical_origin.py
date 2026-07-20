@@ -67,6 +67,54 @@ class CanonicalOriginTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
 
+    def test_coverage_pages_are_public_html(self):
+        expected_pages = {
+            '/coverage/': 'Louisiana 911 Coverage by City and Parish',
+            '/caddo911/': 'Caddo 911 Live Calls',
+            '/coverage/baton-rouge/': 'Baton Rouge Traffic Incidents',
+            '/coverage/lafayette/': 'Lafayette Parish Traffic Incidents',
+            '/coverage/new-orleans/': 'New Orleans NOPD Calls for Service',
+        }
+
+        for path, expected_title in expected_pages.items():
+            with self.subTest(path=path):
+                response = self.client.get(path, headers={'Host': 'localhost'})
+                self.assertEqual(200, response.status_code)
+                self.assertIn('text/html', response.content_type)
+                self.assertIn(expected_title, response.get_data(as_text=True))
+
+    def test_coverage_routes_without_slashes_redirect_permanently(self):
+        for path in (
+            '/coverage',
+            '/coverage/baton-rouge',
+            '/coverage/lafayette',
+            '/coverage/new-orleans',
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path, headers={'Host': 'localhost'})
+                self.assertEqual(301, response.status_code)
+                self.assertEqual(f'{path}/', response.headers['Location'])
+
+    def test_versioned_shell_assets_are_immutable(self):
+        for path in (
+            '/styles.css?v=4.2.1',
+            '/service-worker.js?v=4.2.1',
+            '/manifest.webmanifest?v=4.2.1',
+        ):
+            with self.subTest(path=path):
+                response = self.client.get(path, headers={'Host': 'localhost'})
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(
+                    'public, max-age=31536000, immutable',
+                    response.headers['Cache-Control'],
+                )
+
+    def test_html_is_not_marked_immutable(self):
+        response = self.client.get('/coverage/', headers={'Host': 'localhost'})
+
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn('immutable', response.headers.get('Cache-Control', ''))
+
 
 if __name__ == '__main__':
     unittest.main()

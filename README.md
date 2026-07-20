@@ -11,6 +11,7 @@ Citizen-built Louisiana emergency incident monitor combining official live feeds
 - **Collects** official public feeds from Caddo, Baton Rouge, Lafayette, and New Orleans
 - **Displays** incidents on an interactive dark-themed map with color-coded markers
 - **Supports source tabs**: `All`, `Caddo`, `Baton Rouge`, `Lafayette`, and `New Orleans (Daily)` in Latest and History views
+- **Documents each source** with lightweight, crawlable coverage pages for Caddo Parish, Baton Rouge, Lafayette Parish, and New Orleans
 - **Groups incidents by source** in `All` mode (not interleaved)
 - **Filters** by agency and urgency/severity
 - **Caches** incidents to SQLite for live + historical views
@@ -195,6 +196,8 @@ Crime-preservation rule: if one of those generic final types has a non-generic `
 | `sources/neworleans.py` | New Orleans daily calls-for-service adapter |
 | `sources/neworleans_archive.py` | Append-only annual NOLA raw mirror with payload version preservation |
 | `public/index.html` | Dashboard UI with map + filters |
+| `public/coverage.html` | Browseable city/parish coverage hub |
+| `public/coverage-*.html` | Source-specific timing, location, and limitation pages |
 | `public/styles.css` | Frontend styling |
 | `public/images/` | Logos and agency icons |
 | `caddo911.db` | SQLite database (auto-created) |

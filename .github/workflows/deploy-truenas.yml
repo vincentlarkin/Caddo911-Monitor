@@ -116,6 +116,10 @@ jobs:
             "urlList": [
               "https://louisiana911.com/",
               "https://louisiana911.com/caddo911/",
+              "https://louisiana911.com/coverage/",
+              "https://louisiana911.com/coverage/baton-rouge/",
+              "https://louisiana911.com/coverage/lafayette/",
+              "https://louisiana911.com/coverage/new-orleans/",
               "https://louisiana911.com/about/",
               "https://louisiana911.com/reports/",
               "https://louisiana911.com/reports/monthly/"

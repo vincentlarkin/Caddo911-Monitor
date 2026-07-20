@@ -15,10 +15,11 @@
   <meta name="description" content="View Louisiana 911 public incident feeds on one map, including live Caddo 911 calls, Baton Rouge and Lafayette traffic incidents, and daily NOPD calls.">
   <meta name="robots" content="index,follow,max-image-preview:large">
   <link rel="canonical" href="https://louisiana911.com/">
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="icon" href="/images/louisiana911-icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png">
-  <link rel="manifest" href="/manifest.webmanifest?v=4.1.4">
+  <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon">
+  <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+  <link rel="icon" href="/favicon-96x96.png" sizes="96x96" type="image/png">
+  <link rel="apple-touch-icon" href="/images/louisiana911-icon-192.png" sizes="192x192">
+  <link rel="manifest" href="/manifest.webmanifest?v=4.2.1">
   <meta name="theme-color" content="#0a0a0f">
   <meta name="color-scheme" content="dark">
   <meta name="application-name" content="Louisiana911">
@@ -87,7 +88,7 @@
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.1.4" />
+  <link rel="stylesheet" href="styles.css?v=4.2.1" />
 </head>
 <body class="map-dark">
   <header class="header">
@@ -212,13 +213,17 @@
             <span class="info-link-badge">RPT</span>
             Reports
           </a>
+          <a href="/coverage/" class="info-link">
+            <span class="info-link-badge">4</span>
+            Coverage by city and parish
+          </a>
           <a href="/about/" class="info-link">
             <span class="info-link-badge">LA</span>
             About Louisiana911
           </a>
         </div>
         <p class="info-credit">Made by <a class="info-credit-link" href="mailto:vincent@vincentlarkin.com">Vincent Larkin</a></p>
-        <p class="info-version">v4.1.4</p>
+        <p class="info-version">v4.2.1</p>
       </div>
     </div>
   </div>
@@ -804,7 +809,9 @@
     const markers = new Map();
     let currentIncidents = [];
     let currentHistoryIncidents = [];
-    let currentSource = 'all'; // 'all' | 'caddo' | 'batonrouge' | 'lafayette' | 'neworleans'
+    const sourceFromUrl = new URLSearchParams(window.location.search).get('source');
+    const supportedSources = new Set(['all', 'caddo', 'batonrouge', 'lafayette', 'neworleans']);
+    let currentSource = supportedSources.has(sourceFromUrl) ? sourceFromUrl : 'all';
     let currentLafayetteUnit = 'all'; // 'all' | 'police' | 'sheriff' | 'fire'
     let currentBatonRougeAgency = 'all'; // 'all' | 'law' | 'oss'
     let currentFilter = 'all';  // Agency filter
@@ -3212,7 +3219,7 @@
 
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('service-worker.js?v=4.1.4', { updateViaCache: 'none' })
+        navigator.serviceWorker.register('service-worker.js?v=4.2.1', { updateViaCache: 'none' })
           .then((registration) => registration.update())
           .catch((error) => {
             console.warn('Service worker registration failed:', error);
@@ -3222,6 +3229,9 @@
     
     // Initialize History date UI (default to today)
     setHistoryDate(isoToday, { load: false });
+    document.querySelectorAll('.source-tab').forEach((button) => {
+      button.classList.toggle('active', button.dataset.source === currentSource);
+    });
     syncAgencyFilterGroupsToSource();
     setViewMode(viewMode, { persist: false });
     

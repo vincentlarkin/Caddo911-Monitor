@@ -792,6 +792,17 @@ def _security_headers(resp):
     resp.headers.setdefault('X-Frame-Options', 'DENY')
     resp.headers.setdefault('Referrer-Policy', 'same-origin')
     resp.headers.setdefault('Permissions-Policy', 'geolocation=(self), microphone=(), camera=()')
+
+    # The HTML and APIs stay fresh, while explicitly versioned shell assets can
+    # be reused without a validation round trip. Every deploy changes the
+    # version query string before these files change.
+    versioned_shell_assets = {
+        '/styles.css',
+        '/service-worker.js',
+        '/manifest.webmanifest',
+    }
+    if request.path in versioned_shell_assets and request.args.get('v'):
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
     return resp
 
 # Geocoder setup with caching - try ArcGIS first (better US coverage), fallback to Nominatim
@@ -3511,6 +3522,46 @@ def caddo911_landing():
 @app.route('/caddo911')
 def caddo911_landing_redirect():
     return redirect('/caddo911/', code=301)
+
+
+@app.route('/coverage/')
+def coverage():
+    return send_from_directory('public', 'coverage.html')
+
+
+@app.route('/coverage')
+def coverage_redirect():
+    return redirect('/coverage/', code=301)
+
+
+@app.route('/coverage/baton-rouge/')
+def baton_rouge_coverage():
+    return send_from_directory('public', 'coverage-baton-rouge.html')
+
+
+@app.route('/coverage/baton-rouge')
+def baton_rouge_coverage_redirect():
+    return redirect('/coverage/baton-rouge/', code=301)
+
+
+@app.route('/coverage/lafayette/')
+def lafayette_coverage():
+    return send_from_directory('public', 'coverage-lafayette.html')
+
+
+@app.route('/coverage/lafayette')
+def lafayette_coverage_redirect():
+    return redirect('/coverage/lafayette/', code=301)
+
+
+@app.route('/coverage/new-orleans/')
+def new_orleans_coverage():
+    return send_from_directory('public', 'coverage-new-orleans.html')
+
+
+@app.route('/coverage/new-orleans')
+def new_orleans_coverage_redirect():
+    return redirect('/coverage/new-orleans/', code=301)
 
 
 @app.route('/reports/')
