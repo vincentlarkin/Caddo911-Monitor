@@ -125,6 +125,53 @@ class CanonicalOriginTests(unittest.TestCase):
         self.assertIn("openIncidentDialog(activeIncident", html)
         self.assertIn("const marker = L.featureGroup([triangle, hitTarget])", html)
 
+    def test_api_fetch_metadata_blocks_cross_site_and_browser_navigation(self):
+        cross_site = self.client.get(
+            '/api/incidents/active',
+            headers={
+                'Host': 'louisiana911.com',
+                'X-Forwarded-Proto': 'https',
+                'Sec-Fetch-Site': 'cross-site',
+                'Sec-Fetch-Mode': 'cors',
+            },
+        )
+        direct_navigation = self.client.get(
+            '/api/incidents/active',
+            headers={
+                'Host': 'louisiana911.com',
+                'X-Forwarded-Proto': 'https',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-Mode': 'navigate',
+            },
+        )
+        headerless_client = self.client.get(
+            '/api/incidents/active',
+            headers={
+                'Host': 'louisiana911.com',
+                'X-Forwarded-Proto': 'https',
+            },
+        )
+
+        self.assertEqual(403, cross_site.status_code)
+        self.assertEqual(404, direct_navigation.status_code)
+        self.assertEqual(404, headerless_client.status_code)
+
+    def test_same_origin_api_is_private_uncached_and_history_requires_date(self):
+        headers = {
+            'Host': 'louisiana911.com',
+            'X-Forwarded-Proto': 'https',
+            'Origin': 'https://louisiana911.com',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'cors',
+        }
+        active = self.client.get('/api/incidents/active', headers=headers)
+        unbounded_history = self.client.get('/api/incidents/history', headers=headers)
+
+        self.assertEqual(200, active.status_code)
+        self.assertEqual('no-store, private', active.headers['Cache-Control'])
+        self.assertEqual('noindex, nofollow, noarchive', active.headers['X-Robots-Tag'])
+        self.assertEqual(400, unbounded_history.status_code)
+
 
 if __name__ == '__main__':
     unittest.main()

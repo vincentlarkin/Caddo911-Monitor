@@ -15,6 +15,7 @@ import sys
 import math
 import re
 import json
+from urllib.parse import urlsplit
 from difflib import SequenceMatcher
 from datetime import datetime, timezone, timedelta
 from threading import Lock, Thread
@@ -647,6 +648,10 @@ AUTH_PASS = _env_setting('LOUISIANA911_AUTH_PASS', 'CADDO911_AUTH_PASS') or None
 # infrastructure or dependencies.
 REPORT_PAGE_RATE_LIMIT = int(_env_setting('LOUISIANA911_REPORT_PAGE_RATE_LIMIT', 'CADDO911_REPORT_PAGE_RATE_LIMIT', '120'))
 REPORT_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_REPORT_API_RATE_LIMIT', 'CADDO911_REPORT_API_RATE_LIMIT', '90'))
+INCIDENT_ACTIVE_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_ACTIVE_API_RATE_LIMIT', 'CADDO911_ACTIVE_API_RATE_LIMIT', '120'))
+INCIDENT_HISTORY_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_HISTORY_API_RATE_LIMIT', 'CADDO911_HISTORY_API_RATE_LIMIT', '45'))
+INCIDENT_OTHER_API_RATE_LIMIT = int(_env_setting('LOUISIANA911_OTHER_API_RATE_LIMIT', 'CADDO911_OTHER_API_RATE_LIMIT', '90'))
+INCIDENT_HISTORY_MAX_LIMIT = int(_env_setting('LOUISIANA911_HISTORY_MAX_LIMIT', 'CADDO911_HISTORY_MAX_LIMIT', '1000'))
 REPORT_RATE_WINDOW_SECONDS = int(_env_setting('LOUISIANA911_REPORT_RATE_WINDOW_SECONDS', 'CADDO911_REPORT_RATE_WINDOW_SECONDS', '60'))
 _report_rate_lock = Lock()
 _report_rate_hits: dict[tuple[str, str], list[float]] = {}
@@ -716,8 +721,14 @@ def _client_ip_for_rate_limit() -> str:
 
 def _report_rate_bucket(path: str) -> tuple[str, int] | None:
     clean_path = path.rstrip('/') or '/'
+    if clean_path == '/api/incidents/active':
+        return 'incident-active-api', INCIDENT_ACTIVE_API_RATE_LIMIT
+    if clean_path in {'/api/incidents/history', '/api/incidents/history_counts'}:
+        return 'incident-history-api', INCIDENT_HISTORY_API_RATE_LIMIT
     if clean_path.startswith('/api/reports/'):
         return 'report-api', REPORT_API_RATE_LIMIT
+    if clean_path.startswith('/api/'):
+        return 'other-api', INCIDENT_OTHER_API_RATE_LIMIT
     if clean_path == '/reports' or clean_path.startswith('/reports/'):
         return 'report-page', REPORT_PAGE_RATE_LIMIT
     return None
@@ -726,7 +737,7 @@ def _report_rate_bucket(path: str) -> tuple[str, int] | None:
 def _rate_limited_response(retry_after_seconds: int):
     resp = jsonify({
         'error': 'rate_limited',
-        'message': 'Too many report requests. Please wait a moment and try again.',
+        'message': 'Too many requests. Please wait a moment and try again.',
         'retryAfterSeconds': retry_after_seconds,
     })
     resp.status_code = 429
@@ -773,11 +784,46 @@ def _check_report_rate_limit():
     return None
 
 
+def _api_request_guard():
+    """Block cross-site and address-bar API access used for casual extraction.
+
+    Browser Fetch Metadata is defense in depth, not secrecy: a determined
+    client can imitate these headers. It still prevents cross-site browser use
+    and makes API URLs opened directly in a browser behave as unavailable.
+    """
+    if not request.path.startswith('/api/'):
+        return None
+
+    fetch_site = request.headers.get('Sec-Fetch-Site', '').strip().lower()
+    fetch_mode = request.headers.get('Sec-Fetch-Mode', '').strip().lower()
+    if fetch_site == 'cross-site':
+        return jsonify({'error': 'forbidden'}), 403
+    if fetch_site != 'same-origin' or fetch_mode == 'navigate':
+        return jsonify({'error': 'not_found'}), 404
+
+    origin = request.headers.get('Origin', '').strip()
+    if origin:
+        try:
+            origin_host = (urlsplit(origin).hostname or '').lower()
+        except ValueError:
+            origin_host = ''
+        forwarded_host = _first_forwarded_header_value(
+            request.headers.get('X-Forwarded-Host', '')
+        )
+        request_host = (forwarded_host or request.host).split(':', 1)[0].lower()
+        if not origin_host or origin_host != request_host:
+            return jsonify({'error': 'forbidden'}), 403
+    return None
+
+
 @app.before_request
 def _auth_middleware():
     # Allow container health checks without auth
     if request.path == '/healthz':
         return None
+    api_guard = _api_request_guard()
+    if api_guard is not None:
+        return api_guard
     if not _check_auth():
         return _unauthorized()
     limited = _check_report_rate_limit()
@@ -803,6 +849,10 @@ def _security_headers(resp):
     }
     if request.path in versioned_shell_assets and request.args.get('v'):
         resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    elif request.path.startswith('/api/'):
+        resp.headers['Cache-Control'] = 'no-store, private'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['X-Robots-Tag'] = 'noindex, nofollow, noarchive'
     return resp
 
 # Geocoder setup with caching - try ArcGIS first (better US coverage), fallback to Nominatim
@@ -3612,10 +3662,17 @@ def get_active_incidents():
 
 @app.route('/api/incidents/history')
 def get_history():
-    limit = request.args.get('limit', 100, type=int)
-    offset = request.args.get('offset', 0, type=int)
+    requested_limit = request.args.get('limit', 100, type=int)
+    requested_offset = request.args.get('offset', 0, type=int)
+    limit = max(1, min(requested_limit or 100, max(1, INCIDENT_HISTORY_MAX_LIMIT)))
+    offset = max(0, requested_offset or 0)
     date = request.args.get('date')  # YYYY-MM-DD format
     source_filter = _normalize_source_filter(request.args.get('source'))
+
+    # The public UI is date-oriented. Refuse an unbounded all-history response
+    # instead of allowing a malformed or hand-built request to dump retention.
+    if not date:
+        return jsonify({'error': 'date is required (YYYY-MM-DD)'}), 400
 
     all_incidents: list[dict] = []
     total = 0
